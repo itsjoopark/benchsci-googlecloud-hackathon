@@ -54,3 +54,5 @@ htmlcov/
 *.tmp
 *.temp
 .cache/
+
+multihopwanderer-*.json
