@@ -1,0 +1,36 @@
+.graph-container {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Empty state ── */
+
+.graph-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-lg);
+}
+
+.empty-chips {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.empty-chip {
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.empty-chip:hover {
+  background: var(--color-bg-surface);
+  border-color: var(--color-gene);
+}

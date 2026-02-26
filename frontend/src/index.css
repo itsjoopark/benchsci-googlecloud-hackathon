@@ -1,0 +1,95 @@
+:root {
+  /* Background */
+  --color-bg-primary: #F0EEE9;
+  --color-bg-surface: #FFFFFF;
+  --color-bg-elevated: #F7F6F3;
+  --color-border: #E0DDD6;
+  --color-text-primary: #1A1A1A;
+  --color-text-secondary: #6B6B6B;
+
+  /* Entity colors */
+  --color-gene: #4A90D9;
+  --color-disease: #E74C3C;
+  --color-drug: #2ECC71;
+  --color-pathway: #F39C12;
+  --color-protein: #9B59B6;
+
+  /* Provenance badge colors */
+  --color-badge-curated: #27AE60;
+  --color-badge-literature: #2980B9;
+  --color-badge-inferred: #F39C12;
+  --color-badge-ai: #8E44AD;
+
+  /* Typography */
+  --font-family: "Inter", -apple-system, system-ui, sans-serif;
+  --font-size-xs: 11px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+
+  /* Border radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Graph canvas */
+  --graph-bg: #F0EEE9;
+  --graph-grid-color: #E5E3DE;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button {
+  font-family: var(--font-family);
+  cursor: pointer;
+}
+
+input {
+  font-family: var(--font-family);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+}
