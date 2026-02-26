@@ -56,3 +56,7 @@ htmlcov/
 .cache/
 
 multihopwanderer-*.json
+service-account-key.json
+
+# Large dataset files
+data/pkg2/
