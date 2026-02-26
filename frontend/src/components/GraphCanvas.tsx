@@ -16,6 +16,7 @@ interface Props {
   entities: Entity[];
   edges: GraphEdge[];
   selectedEntityId: string | null;
+  selectedEdgeId: string | null;
   expandedNodes: Set<string>;
   path: PathNode[];
   onNodeSelect: (nodeId: string) => void;
@@ -37,11 +38,15 @@ interface SimNode extends SimulationNodeDatum {
 
 interface SimLink extends SimulationLinkDatum<SimNode> {
   id: string;
+  color?: string;
   line?: THREE.Line;
+  glowMesh?: THREE.Mesh;
 }
 
 const EDGE_COLOR = 0xbdc3c7;
 const EDGE_HOVER_WIDTH = 3;
+const EDGE_GLOW_WIDTH = 8;
+const EDGE_GLOW_OPACITY = 0.25;
 const NODE_RADIUS = 14;
 const BG_COLOR = 0xf0eee9;
 
@@ -112,6 +117,7 @@ export default function GraphCanvas({
   entities,
   edges,
   selectedEntityId,
+  selectedEdgeId,
   expandedNodes,
   path,
   onNodeSelect,
@@ -123,9 +129,19 @@ export default function GraphCanvas({
   const cleanupRef = useRef<(() => void) | null>(null);
   const hoveredNodeRef = useRef<THREE.Mesh | null>(null);
   const selectedEntityIdRef = useRef<string | null>(selectedEntityId);
+  const selectedEdgeIdRef = useRef<string | null>(selectedEdgeId);
+  const onNodeSelectRef = useRef(onNodeSelect);
+  const onNodeExpandRef = useRef(onNodeExpand);
+  const onEdgeSelectRef = useRef(onEdgeSelect);
+  const onAddToPathRef = useRef(onAddToPath);
   const pathIds = new Set(path.map((p) => p.entityId));
 
   selectedEntityIdRef.current = selectedEntityId;
+  selectedEdgeIdRef.current = selectedEdgeId;
+  onNodeSelectRef.current = onNodeSelect;
+  onNodeExpandRef.current = onNodeExpand;
+  onEdgeSelectRef.current = onEdgeSelect;
+  onAddToPathRef.current = onAddToPath;
 
   useEffect(() => {
     if (!containerRef.current || entities.length === 0) return;
@@ -166,6 +182,7 @@ export default function GraphCanvas({
         id: e.id,
         source: e.source,
         target: e.target,
+        color: e.color,
       }));
 
     // Create edge lines first (render behind nodes)
@@ -174,6 +191,8 @@ export default function GraphCanvas({
       const material = new THREE.LineBasicMaterial({
         color: EDGE_COLOR,
         linewidth: 1,
+        transparent: true,
+        opacity: 0.6,
       });
       const geometry = new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(0, 0, 0),
@@ -183,6 +202,22 @@ export default function GraphCanvas({
       line.userData = { edgeId: link.id };
       scene.add(line);
       link.line = line;
+
+      // Glow mesh for edge hover/selection
+      const glowColor = link.color ? new THREE.Color(link.color) : new THREE.Color(0x7FB3E0);
+      const glowGeo = new THREE.PlaneGeometry(1, 1);
+      const glowMat = new THREE.MeshBasicMaterial({
+        color: glowColor,
+        transparent: true,
+        opacity: EDGE_GLOW_OPACITY,
+        depthWrite: false,
+      });
+      const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+      glowMesh.position.z = 0.1;
+      glowMesh.visible = false;
+      scene.add(glowMesh);
+      link.glowMesh = glowMesh;
+
       edgeMeshes.push(link);
     });
 
@@ -202,11 +237,11 @@ export default function GraphCanvas({
       mesh.scale.set(node.size, node.size, 1);
 
       // Glow (for selected + hover) - radius in local space so it scales with mesh
-      const glowGeo = new THREE.CircleGeometry(NODE_RADIUS * 1.7, 32);
+      const glowGeo = new THREE.CircleGeometry(NODE_RADIUS * 2, 32);
       const glowMat = new THREE.MeshBasicMaterial({
         color: new THREE.Color(node.color),
         transparent: true,
-        opacity: 0.35,
+        opacity: 0.5,
       });
       const glow = new THREE.Mesh(glowGeo, glowMat);
       glow.position.z = 0.5;
@@ -272,11 +307,6 @@ export default function GraphCanvas({
           node.labelSprite.position.x = node.x;
           node.labelSprite.position.y = node.y - (r + 14);
         }
-        if (node.glowMesh) {
-          const isSelected = node.id === selectedEntityIdRef.current;
-          const isHovered = hoveredNodeRef.current === node.mesh;
-          node.glowMesh.visible = isSelected || isHovered;
-        }
       });
 
       simLinks.forEach((link) => {
@@ -287,15 +317,39 @@ export default function GraphCanvas({
           positions.setXY(0, s.x, s.y);
           positions.setXY(1, t.x, t.y);
           positions.needsUpdate = true;
+
+          const isSelected = link.id === selectedEdgeIdRef.current;
+          const mat = link.line.material as THREE.LineBasicMaterial;
+          mat.color.setHex(isSelected ? 0x4A90D9 : EDGE_COLOR);
+          mat.opacity = isSelected ? 1 : 0.6;
+
+          if (link.glowMesh) {
+            const dx = t.x - s.x;
+            const dy = t.y - s.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            link.glowMesh.position.set((s.x + t.x) / 2, (s.y + t.y) / 2, 0.1);
+            link.glowMesh.rotation.z = Math.atan2(dy, dx);
+            link.glowMesh.scale.set(dist, EDGE_GLOW_WIDTH, 1);
+          }
         }
       });
     });
+
+    // Helper: check if a node is an endpoint of the given edge
+    function isConnectedToEdge(nodeId: string, edgeId: string): boolean {
+      const link = simLinks.find((l) => l.id === edgeId);
+      if (!link) return false;
+      const s = (link.source as SimNode).id ?? link.source;
+      const t = (link.target as SimNode).id ?? link.target;
+      return s === nodeId || t === nodeId;
+    }
 
     // Interaction state
     const raycaster = new THREE.Raycaster();
     raycaster.params.Line = { threshold: 5 };
     const mouse = new THREE.Vector2();
     let hoveredNode: THREE.Mesh | null = null;
+    let hoveredEdgeLine: THREE.Line | null = null;
     let clickTimer: ReturnType<typeof setTimeout> | null = null;
     let isDragging = false;
     let dragStart = { x: 0, y: 0 };
@@ -314,7 +368,7 @@ export default function GraphCanvas({
       const nodeMeshes = simNodes
         .map((n) => n.mesh)
         .filter(Boolean) as THREE.Mesh[];
-      const intersects = raycaster.intersectObjects(nodeMeshes);
+      const intersects = raycaster.intersectObjects(nodeMeshes, false);
       return intersects.length > 0 ? (intersects[0].object as THREE.Mesh) : null;
     }
 
@@ -360,7 +414,53 @@ export default function GraphCanvas({
 
       if (!node) {
         const edge = getIntersectedEdge(e);
+        if (edge && edge !== hoveredEdgeLine) {
+          // Reset previous hovered edge (only if it's not the selected edge)
+          if (hoveredEdgeLine) {
+            const isSelected = hoveredEdgeLine.userData.edgeId === selectedEdgeIdRef.current;
+            if (!isSelected) {
+              const mat = hoveredEdgeLine.material as THREE.LineBasicMaterial;
+              mat.color.setHex(EDGE_COLOR);
+              mat.opacity = 0.6;
+            }
+          }
+          // Highlight new hovered edge (only if it's not already selected)
+          const isSelected = edge.userData.edgeId === selectedEdgeIdRef.current;
+          if (!isSelected) {
+            const mat = edge.material as THREE.LineBasicMaterial;
+            mat.color.setHex(0x7FB3E0);
+            mat.opacity = 0.8;
+          }
+          hoveredEdgeLine = edge;
+        } else if (!edge && hoveredEdgeLine) {
+          const isSelected = hoveredEdgeLine.userData.edgeId === selectedEdgeIdRef.current;
+          if (!isSelected) {
+            const mat = hoveredEdgeLine.material as THREE.LineBasicMaterial;
+            mat.color.setHex(EDGE_COLOR);
+            mat.opacity = 0.6;
+          }
+          hoveredEdgeLine = null;
+        }
         container.style.cursor = edge ? "pointer" : "default";
+      }
+    };
+
+    const handleMouseLeave = () => {
+      if (hoveredNode) {
+        const s = (hoveredNode.userData.nodeSize as number) ?? 1;
+        hoveredNode.scale.set(s, s, 1);
+        hoveredNode = null;
+        hoveredNodeRef.current = null;
+        container.style.cursor = "default";
+      }
+      if (hoveredEdgeLine) {
+        const isSelected = hoveredEdgeLine.userData.edgeId === selectedEdgeIdRef.current;
+        if (!isSelected) {
+          const mat = hoveredEdgeLine.material as THREE.LineBasicMaterial;
+          mat.color.setHex(EDGE_COLOR);
+          mat.opacity = 0.6;
+        }
+        hoveredEdgeLine = null;
       }
     };
 
@@ -382,7 +482,7 @@ export default function GraphCanvas({
         const dx = Math.abs(e.clientX - dragStart.x);
         const dy = Math.abs(e.clientY - dragStart.y);
         isPanning = false;
-        if (dx > 3 || dy > 3) return;
+        if (dx > 5 || dy > 5) return;
       }
 
       if (e.button === 0) {
@@ -392,19 +492,19 @@ export default function GraphCanvas({
           if (clickTimer) {
             clearTimeout(clickTimer);
             clickTimer = null;
-            onNodeExpand(nodeId);
+            onNodeExpandRef.current(nodeId);
           } else {
             clickTimer = setTimeout(() => {
               clickTimer = null;
-              onNodeSelect(nodeId);
-            }, 250);
+              onNodeSelectRef.current(nodeId);
+            }, 150);
           }
           return;
         }
 
         const edge = getIntersectedEdge(e);
         if (edge) {
-          onEdgeSelect(edge.userData.edgeId as string);
+          onEdgeSelectRef.current(edge.userData.edgeId as string);
         }
       }
     };
@@ -414,7 +514,7 @@ export default function GraphCanvas({
       e.preventDefault();
       const node = getIntersectedNode(e);
       if (node) {
-        onAddToPath(node.userData.nodeId as string);
+        onAddToPathRef.current(node.userData.nodeId as string);
       }
     };
 
@@ -427,6 +527,7 @@ export default function GraphCanvas({
     };
 
     container.addEventListener("mousemove", handleMouseMove);
+    container.addEventListener("mouseleave", handleMouseLeave);
     container.addEventListener("mousedown", handleMouseDown);
     container.addEventListener("mouseup", handleMouseUp);
     container.addEventListener("contextmenu", handleContextMenu);
@@ -450,6 +551,22 @@ export default function GraphCanvas({
     let animId: number;
     const animate = () => {
       animId = requestAnimationFrame(animate);
+      simNodes.forEach((node) => {
+        if (node.glowMesh) {
+          const isHovered = hoveredNodeRef.current === node.mesh;
+          const isEdgeEndpoint = selectedEdgeIdRef.current !== null &&
+            isConnectedToEdge(node.id, selectedEdgeIdRef.current);
+          node.glowMesh.visible = isHovered || isEdgeEndpoint;
+        }
+      });
+      simLinks.forEach((link) => {
+        if (link.glowMesh) {
+          const isHovered = hoveredEdgeLine !== null &&
+            hoveredEdgeLine.userData.edgeId === link.id;
+          const isSelected = link.id === selectedEdgeIdRef.current;
+          link.glowMesh.visible = isHovered || isSelected;
+        }
+      });
       renderer.render(scene, camera);
     };
     animate();
@@ -458,11 +575,18 @@ export default function GraphCanvas({
       cancelAnimationFrame(animId);
       simulation.stop();
       container.removeEventListener("mousemove", handleMouseMove);
+      container.removeEventListener("mouseleave", handleMouseLeave);
       container.removeEventListener("mousedown", handleMouseDown);
       container.removeEventListener("mouseup", handleMouseUp);
       container.removeEventListener("contextmenu", handleContextMenu);
       container.removeEventListener("wheel", handleWheel);
       resizeObs.disconnect();
+      simLinks.forEach((link) => {
+        if (link.glowMesh) {
+          link.glowMesh.geometry.dispose();
+          (link.glowMesh.material as THREE.MeshBasicMaterial).dispose();
+        }
+      });
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
