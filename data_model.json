@@ -1,0 +1,229 @@
+{
+  "center_node_id": "672",
+  "nodes": [
+    {
+      "id": "672",
+      "name": "BRCA1",
+      "type": "biolink:Gene",
+      "color": "#4A90D9",
+      "size": 1.5,
+      "is_expanded": true,
+      "metadata": {
+        "ncbi_gene_id": "672",
+        "hgnc_id": "HGNC:1100",
+        "symbol": "BRCA1",
+        "full_name": "BRCA1 DNA repair associated",
+        "chromosome": "17",
+        "aliases": ["BROVCA1", "FANCS", "IRIS", "PNCA4", "RNF53"]
+      }
+    },
+    {
+      "id": "MONDO:0007254",
+      "name": "Breast Cancer",
+      "type": "biolink:DiseaseOrPhenotypicFeature",
+      "color": "#D0021B",
+      "size": 1.0,
+      "is_expanded": false,
+      "metadata": {
+        "mondo_id": "MONDO:0007254",
+        "umls_cui": "C0006142",
+        "icd10": "C50",
+        "prevalence": "Approximately 2.3 million new cases/year globally"
+      }
+    },
+    {
+      "id": "CHEMBL:4297",
+      "name": "Olaparib",
+      "type": "biolink:Drug",
+      "color": "#7ED321",
+      "size": 1.0,
+      "is_expanded": false,
+      "metadata": {
+        "chembl_id": "CHEMBL:4297",
+        "drugbank_id": "DB09074",
+        "mechanism": "PARP inhibitor",
+        "approval_status": "FDA approved (2014)",
+        "indication": "BRCA-mutated ovarian, breast, and prostate cancer"
+      }
+    },
+    {
+      "id": "675",
+      "name": "BRCA2",
+      "type": "biolink:Gene",
+      "color": "#4A90D9",
+      "size": 1.0,
+      "is_expanded": false,
+      "metadata": {
+        "ncbi_gene_id": "675",
+        "hgnc_id": "HGNC:1101",
+        "symbol": "BRCA2",
+        "full_name": "BRCA2 DNA repair associated",
+        "chromosome": "13",
+        "aliases": ["BRCC2", "BROVCA2", "FACD", "FAD", "FAD1", "FANCD", "FANCD1", "GLM3", "PNCA2", "XRCC11"]
+      }
+    },
+    {
+      "id": "R-HSA-5693538",
+      "name": "Homologous DNA Repair",
+      "type": "biolink:Pathway",
+      "color": "#9B59B6",
+      "size": 1.0,
+      "is_expanded": false,
+      "metadata": {
+        "reactome_id": "R-HSA-5693538",
+        "parent_pathway_id": "R-HSA-73894",
+        "parent_pathway_name": "DNA Repair",
+        "species": "Homo sapiens",
+        "reaction_count": 42
+      }
+    },
+    {
+      "id": "5888",
+      "name": "RAD51",
+      "type": "biolink:Gene",
+      "color": "#4A90D9",
+      "size": 1.0,
+      "is_expanded": false,
+      "metadata": {
+        "ncbi_gene_id": "5888",
+        "hgnc_id": "HGNC:9817",
+        "symbol": "RAD51",
+        "full_name": "RAD51 recombinase",
+        "chromosome": "15",
+        "aliases": ["BRCC5", "MRMV2", "RAD51A", "RECA"]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "672--MONDO:0007254",
+      "source": "672",
+      "target": "MONDO:0007254",
+      "predicate": "biolink:gene_associated_with_condition",
+      "label": "associated with",
+      "color": "#E74C3C",
+      "source_db": "disgenet",
+      "direction": "->",
+      "confidence_score": 0.98,
+      "provenance": "curated_db",
+      "evidence": [
+        {
+          "pmid": "7894493",
+          "snippet": "A strong candidate for the breast and ovarian cancer susceptibility gene BRCA1 was identified; the sequence contains an open reading frame of 7,224 nt and encodes a predicted protein of 1,863 amino acids.",
+          "pub_year": 1994,
+          "source": "PubMed"
+        },
+        {
+          "pmid": "27433846",
+          "snippet": "BRCA1 somatic mutations occur in approximately 1.3% of breast cancers, with germline BRCA1 mutations conferring a 46-87% lifetime risk of breast cancer.",
+          "pub_year": 2016,
+          "source": "PubMed"
+        }
+      ]
+    },
+    {
+      "id": "CHEMBL:4297--672",
+      "source": "CHEMBL:4297",
+      "target": "672",
+      "predicate": "biolink:affects",
+      "label": "sensitizes to",
+      "color": "#27AE60",
+      "source_db": "chembl",
+      "direction": "->",
+      "confidence_score": 0.95,
+      "provenance": "curated_db",
+      "evidence": [
+        {
+          "pmid": "19553714",
+          "snippet": "Olaparib (AZD2281) induced synthetic lethality in BRCA-deficient cells at concentrations 1,000-fold lower than in BRCA-proficient cells, demonstrating selective cytotoxicity mediated by PARP inhibition.",
+          "pub_year": 2009,
+          "source": "PubMed"
+        },
+        {
+          "pmid": "25673413",
+          "snippet": "In patients with germline BRCA1 or BRCA2 mutations and advanced cancer, olaparib showed antitumor activity based on the principle of synthetic lethality.",
+          "pub_year": 2015,
+          "source": "PubMed"
+        }
+      ]
+    },
+    {
+      "id": "672--675",
+      "source": "672",
+      "target": "675",
+      "predicate": "biolink:physically_interacts_with",
+      "label": "interacts with",
+      "color": "#F39C12",
+      "source_db": "reactome_ppi",
+      "direction": "<->",
+      "confidence_score": 0.97,
+      "provenance": "curated_db",
+      "evidence": [
+        {
+          "pmid": "9428769",
+          "snippet": "BRCA1 and BRCA2 colocalize at discrete nuclear foci after DNA damage and interact directly with RAD51, implicating both proteins in homologous recombination-mediated DNA repair.",
+          "pub_year": 1998,
+          "source": "PubMed"
+        },
+        {
+          "pmid": "10373512",
+          "snippet": "The BRCA1 C-terminus (BRCT) domain interacts with BRCA2 via PALB2 bridging, forming a functional complex essential for HR repair of double-strand breaks.",
+          "pub_year": 1999,
+          "source": "PubMed"
+        }
+      ]
+    },
+    {
+      "id": "672--R-HSA-5693538",
+      "source": "672",
+      "target": "R-HSA-5693538",
+      "predicate": "biolink:participates_in",
+      "label": "participates in",
+      "color": "#8E44AD",
+      "source_db": "reactome",
+      "direction": "->",
+      "confidence_score": 1.0,
+      "provenance": "curated_db",
+      "evidence": [
+        {
+          "pmid": "10535901",
+          "snippet": "BRCA1 is required for homologous recombination-directed repair of DNA double-strand breaks. Cells lacking BRCA1 show a severe defect in HR and fail to form RAD51 foci after DNA damage.",
+          "pub_year": 1999,
+          "source": "PubMed"
+        },
+        {
+          "pmid": "23913237",
+          "snippet": "BRCA1 promotes end resection of DNA double-strand breaks by facilitating CtIP phosphorylation, a critical initiating step in homologous recombination.",
+          "pub_year": 2013,
+          "source": "PubMed"
+        }
+      ]
+    },
+    {
+      "id": "672--5888",
+      "source": "672",
+      "target": "5888",
+      "predicate": "biolink:positively_regulates",
+      "label": "activates",
+      "color": "#F39C12",
+      "source_db": "fis_in_gene",
+      "direction": "->",
+      "confidence_score": 0.92,
+      "provenance": "curated_db",
+      "evidence": [
+        {
+          "pmid": "8944023",
+          "snippet": "BRCA1 colocalizes with RAD51 in discrete nuclear foci during S phase and after DNA damage, suggesting that BRCA1 regulates RAD51-mediated strand invasion during homologous recombination.",
+          "pub_year": 1997,
+          "source": "PubMed"
+        },
+        {
+          "pmid": "15469989",
+          "snippet": "Loss of BRCA1 leads to impaired RAD51 recruitment to sites of DNA damage, resulting in defective homologous recombination and genomic instability.",
+          "pub_year": 2004,
+          "source": "PubMed"
+        }
+      ]
+    }
+  ]
+}
