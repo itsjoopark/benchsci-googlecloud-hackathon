@@ -1,0 +1,76 @@
+{
+  "title": "Export Interactive Graph to JSON",
+  "handoff": "Spec for developer team implementation",
+  "goal": "Create interactive-graph.json by capturing the dynamic graph state from the frontend. Implement as an Export button that serializes the current graph state and triggers a download.",
+  "export_data_shape": {
+    "center_node_id": "string (e.g. \"672\")",
+    "nodes": "array of Entity objects",
+    "edges": "array of GraphEdge objects",
+    "path": "array of PathNode objects",
+    "selected_entity_id": "string | null",
+    "expanded_node_ids": "array of strings",
+    "selected_edge_id": "string | null"
+  },
+  "node_fields": ["id", "name", "type", "primaryId", "metadata", "color", "size"],
+  "edge_fields": ["id", "source", "target", "predicate", "label", "score", "provenance", "sourceDb", "evidence"],
+  "path_fields": ["entityId", "entityName", "entityType", "edgePredicate"],
+  "implementation": {
+    "steps": [
+      {
+        "step": 1,
+        "action": "Create frontend/src/utils/exportGraph.ts",
+        "details": [
+          "exportGraphToJson(state) - takes entities, edges, path, selectedEntity, selectedEdge, expandedNodes, centerNodeId",
+          "Returns a plain object suitable for JSON.stringify",
+          "Converts Set<string> to string[] for expanded_node_ids",
+          "Uses graphPayload?.center_node_id or selectedEntity?.id as fallback for center"
+        ]
+      },
+      {
+        "step": 2,
+        "action": "Add download helper in same file",
+        "details": [
+          "downloadJson(obj, filename) - creates a Blob, builds an anchor with download=\"interactive-graph.json\", triggers click, revokes URL"
+        ]
+      },
+      {
+        "step": 3,
+        "action": "Wire into App and Toolbar",
+        "details": [
+          "Add handleExport in App.tsx that calls exportGraphToJson and downloadJson(result, \"interactive-graph.json\")",
+          "Pass onExport={handleExport} and exportDisabled={!graphLoaded} to Toolbar",
+          "Add Export button next to Fit button in Toolbar"
+        ]
+      },
+      {
+        "step": 4,
+        "action": "Toolbar UI",
+        "details": [
+          "Add second toolbar button with download/export icon",
+          "Disabled when !graphLoaded",
+          "Tooltip: \"Export graph as JSON\""
+        ]
+      }
+    ]
+  },
+  "files_to_create_or_modify": [
+    {
+      "path": "frontend/src/utils/exportGraph.ts",
+      "action": "Create - export and download logic"
+    },
+    {
+      "path": "frontend/src/App.tsx",
+      "action": "Add handleExport, pass to Toolbar"
+    },
+    {
+      "path": "frontend/src/components/Toolbar.tsx",
+      "action": "Add Export button, onExport, exportDisabled props"
+    }
+  ],
+  "reference": {
+    "types": "Entity, GraphEdge, PathNode in frontend/src/types.ts",
+    "state_location": "App.tsx holds entities, edges, path, selectedEntity, selectedEdge, expandedNodes, graphPayload",
+    "data_source": "frontend/public/data_model.json",
+    "api_types": "frontend/src/types/api.ts"
+  }
+}
