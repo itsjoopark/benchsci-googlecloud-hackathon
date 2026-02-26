@@ -61,9 +61,9 @@ A **three-pane web app** for interactive multi-hop biomedical knowledge graph ex
 ### Must use GCP (no third-party commercial services!)
 - ⚠️ **Claude API is NOT allowed** — use **Gemini via Vertex AI** for LLM rationale generation
 - Backend: **FastAPI (Python)** on Cloud Run
-- Frontend: **React + Cytoscape.js**
+- Frontend: **Vite React + three.js**
 - Data warehouse: **BigQuery** (preferred by organizers)
-- Graph DB: Neo4j (open source, run on GKE) OR in-memory graph for simplicity
+- DB: ?? we are unsure - we need to look at datasets and normalise them
 - LLM: **Gemini via Vertex AI** — called on edge click only, grounded in retrieved snippets
 - Evidence retrieval: **PubMed E-utilities API** (free, no auth for abstracts)
 - Protein metadata: **UniProt REST API** (free, no auth, call at runtime)
