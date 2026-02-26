@@ -1,2 +1,2 @@
-# benchsci-googlecloud-hackathon
-challenge 5
+# BenchSci Google Cloud Hackathon
+Team challenge 5
