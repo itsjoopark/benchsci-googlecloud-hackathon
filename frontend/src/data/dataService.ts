@@ -1,6 +1,6 @@
 import type { Entity } from "../types";
 import type { JsonGraphPayload } from "../types/api";
-import { jsonPayloadToGraph, jsonNodeToEntity } from "./adapters";
+import { jsonNodeToEntity } from "./adapters";
 
 export async function fetchGraph(): Promise<JsonGraphPayload> {
   const res = await fetch("/data_model.json");

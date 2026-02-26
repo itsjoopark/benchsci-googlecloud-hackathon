@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect } from "react";
 import * as THREE from "three";
 import {
   forceSimulation,
@@ -44,7 +44,6 @@ interface SimLink extends SimulationLinkDatum<SimNode> {
 }
 
 const EDGE_COLOR = 0xbdc3c7;
-const EDGE_HOVER_WIDTH = 3;
 const EDGE_GLOW_WIDTH = 8;
 const EDGE_GLOW_OPACITY = 0.25;
 const NODE_RADIUS = 14;
@@ -276,7 +275,8 @@ export default function GraphCanvas({
         transparent: true,
       });
       const sprite = new THREE.Sprite(spriteMat);
-      const aspect = texture.image.width / texture.image.height;
+      const textureImage = texture.source.data as { width: number; height: number };
+      const aspect = textureImage.width / textureImage.height;
       sprite.scale.set(aspect * 16, 16, 1);
       sprite.position.set(0, -(r + 14), 2);
       scene.add(sprite);
@@ -351,7 +351,6 @@ export default function GraphCanvas({
     let hoveredNode: THREE.Mesh | null = null;
     let hoveredEdgeLine: THREE.Line | null = null;
     let clickTimer: ReturnType<typeof setTimeout> | null = null;
-    let isDragging = false;
     let dragStart = { x: 0, y: 0 };
     let panStart = { x: 0, y: 0 };
     let isPanning = false;

@@ -58,3 +58,30 @@ export GOOGLE_APPLICATION_CREDENTIALS="/Users/kezit/Repositories/benchsci-google
 ```
 
 Then rerun the same deploy command.
+
+## Simple CD pipeline (Cloud Build -> Cloud Run)
+
+This repo includes a root-level Cloud Build pipeline at
+`/Users/kezit/Repositories/benchsci-googlecloud-hackathon/cloudbuild.yaml`.
+
+It does:
+
+- Docker build from `frontend/`
+- Push image to Artifact Registry
+- Deploy image to Cloud Run service `benchspark-frontend`
+
+One-time setup from repo root:
+
+```bash
+gcloud config set account kezitogaleacurmi@gmail.com
+gcloud config set project multihopwanderer-1771992134
+./scripts/gcp/setup_frontend_cd.sh
+```
+
+After setup, every push to `main` triggers deploy automatically.
+
+If setup fails, complete these prerequisites:
+
+1. Connect the GitHub repo to Cloud Build in this project:
+   - <https://console.cloud.google.com/cloud-build/triggers;region=us-central1/connect?project=113940992739>
+2. Run setup with a principal that can update IAM policy (`setIamPolicy`) on project/service accounts.
