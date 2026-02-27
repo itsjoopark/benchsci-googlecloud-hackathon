@@ -304,7 +304,7 @@ interface DeepThinkChatHandlers {
   onStart?: (payload: { path_summary: string }) => void;
   onPapersLoaded?: (payload: { papers: DeepThinkPaper[]; count: number }) => void;
   onDelta?: (payload: { text: string }) => void;
-  onDone?: (payload: { text: string; confidence?: DeepThinkConfidence }) => void;
+  onDone?: (payload: { text: string; confidence?: DeepThinkConfidence; cited_papers?: DeepThinkPaper[] }) => void;
   onError?: (payload: { message: string; partial_text?: string }) => void;
   signal?: AbortSignal;
 }
@@ -356,6 +356,7 @@ export async function streamDeepThinkChat(
         handlers.onDone?.({
           text: String(parsed.data.text ?? ""),
           confidence: parsed.data.confidence as DeepThinkConfidence | undefined,
+          cited_papers: parsed.data.cited_papers as DeepThinkPaper[] | undefined,
         });
       } else if (parsed.event === "error") {
         handlers.onError?.({
@@ -372,6 +373,7 @@ export async function streamDeepThinkChat(
     handlers.onDone?.({
       text: String(finalBlock.data.text ?? ""),
       confidence: finalBlock.data.confidence as DeepThinkConfidence | undefined,
+      cited_papers: finalBlock.data.cited_papers as DeepThinkPaper[] | undefined,
     });
   } else if (finalBlock.event === "error") {
     handlers.onError?.({

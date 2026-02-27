@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { GraphEdge, PathNode } from "../types";
 import { streamDeepThinkChat } from "../data/dataService";
 import type {
@@ -11,6 +12,7 @@ import "./DeepThinkPanel.css";
 interface Props {
   path: PathNode[];
   edges: GraphEdge[];
+  onOpenChange?: (isOpen: boolean) => void;
 }
 
 interface ChatMessage {
@@ -19,6 +21,7 @@ interface ChatMessage {
   content: string;
   streaming?: boolean;
   confidence?: DeepThinkConfidence;
+  citedPapers?: DeepThinkPaper[];
 }
 
 function stripMarkdown(text: string): string {
@@ -49,8 +52,11 @@ function ConfidenceBadge({ confidence }: { confidence: DeepThinkConfidence }) {
   );
 }
 
-/** Inline citation: renders a hoverable popup for a single [N] or ([N]) reference.
- *  Uses position:fixed so the popup escapes any overflow:hidden/auto ancestors.
+/** Inline citation: renders a hoverable + clickable popup for a single [N] reference.
+ *
+ *  Uses createPortal so the popup renders in document.body, completely outside the
+ *  .dt-panel which has backdrop-filter. backdrop-filter creates a new stacking context
+ *  that confines position:fixed children — portal sidesteps this entirely.
  */
 function InlineCitation({
   numbers,
@@ -62,36 +68,40 @@ function InlineCitation({
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ bottom: number; left: number } | null>(null);
   const triggerRef = useRef<HTMLSpanElement>(null);
-  const popupRef = useRef<HTMLSpanElement>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Always call hooks unconditionally before any early return
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
 
   const refs = numbers.map((n) => papers[n - 1]).filter(Boolean);
   const label = `[${numbers.join(", ")}]`;
 
+  // Early return after all hooks — valid React pattern
   if (!refs.length) return <span>{label}</span>;
 
-  const POPUP_W = 270; // approximate popup width for clamping
+  const POPUP_W = 270;
 
-  const handleTriggerEnter = () => {
+  const openPopup = () => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
     if (!triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
-    // Horizontal centre, clamped to stay inside the viewport
     let left = r.left + r.width / 2;
     left = Math.min(left, window.innerWidth - POPUP_W / 2 - 8);
     left = Math.max(left, POPUP_W / 2 + 8);
-    // Always show above; bottom = distance from trigger top to viewport bottom
-    const bottom = window.innerHeight - r.top + 6;
-    setPos({ bottom, left });
+    setPos({ bottom: window.innerHeight - r.top + 6, left });
     setOpen(true);
   };
 
-  const handleTriggerLeave = (e: React.MouseEvent) => {
-    if (popupRef.current?.contains(e.relatedTarget as Node)) return;
-    setOpen(false);
+  const scheduleClose = () => {
+    timerRef.current = setTimeout(() => setOpen(false), 200);
   };
 
-  const handlePopupLeave = (e: React.MouseEvent) => {
-    if (triggerRef.current?.contains(e.relatedTarget as Node)) return;
-    setOpen(false);
+  const cancelClose = () => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
   };
 
   return (
@@ -99,19 +109,24 @@ function InlineCitation({
       <span
         ref={triggerRef}
         className="dt-inline-cite__trigger"
-        onMouseEnter={handleTriggerEnter}
-        onMouseLeave={handleTriggerLeave}
+        onMouseEnter={openPopup}
+        onMouseLeave={scheduleClose}
       >
         {label}
       </span>
 
-      {open && pos && (
+      {open && pos && createPortal(
         <span
-          ref={popupRef}
           className="dt-inline-cite__popup"
           role="tooltip"
-          style={{ bottom: pos.bottom, left: pos.left }}
-          onMouseLeave={handlePopupLeave}
+          style={{
+            position: "fixed",
+            bottom: pos.bottom,
+            left: pos.left,
+            transform: "translateX(-50%)",
+          }}
+          onMouseEnter={cancelClose}
+          onMouseLeave={scheduleClose}
         >
           {refs.map((p, i) => (
             <span key={i} className="dt-inline-cite__paper">
@@ -128,7 +143,8 @@ function InlineCitation({
               )}
             </span>
           ))}
-        </span>
+        </span>,
+        document.body
       )}
     </span>
   );
@@ -166,6 +182,55 @@ function renderWithCitations(
   return nodes;
 }
 
+function SourcesList({ papers }: { papers: DeepThinkPaper[] }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!papers.length) return null;
+  return (
+    <div className="dt-sources">
+      <button
+        className="dt-sources__toggle"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+      >
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+        </svg>
+        {papers.length} source{papers.length !== 1 ? "s" : ""}
+        <svg
+          width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+          style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}
+        >
+          <polyline points="18 15 12 9 6 15" />
+        </svg>
+      </button>
+      {expanded && (
+        <ul className="dt-sources__list">
+          {papers.map((p, i) => {
+            const label = p.index != null ? `[${p.index}]` : `[${i + 1}]`;
+            return (
+              <li key={p.index ?? i}>
+                {p.pmid ? (
+                  <a
+                    href={`https://pubmed.ncbi.nlm.nih.gov/${p.pmid}/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {label} {p.title}{p.year ? ` (${p.year})` : ""}
+                  </a>
+                ) : (
+                  <span>{label} {p.title}{p.year ? ` (${p.year})` : ""}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function MessageBubble({
   message,
   papers,
@@ -187,6 +252,8 @@ function MessageBubble({
       ? renderWithCitations(displayText, papers)
       : displayText;
 
+  const isThinking = message.role === "assistant" && message.streaming && !message.content;
+
   return (
     <div className={`dt-message dt-message--${message.role}`}>
       {message.role === "assistant" && (
@@ -198,8 +265,19 @@ function MessageBubble({
       )}
       <div className="dt-message__bubble">
         <p className="dt-message__text">
-          {bodyContent}
-          {message.streaming && <span className="dt-cursor" aria-hidden="true" />}
+          {isThinking ? (
+            <span className="dt-thinking" aria-label="Thinking">
+              Thinking
+              <span className="dt-thinking__dot" aria-hidden="true">.</span>
+              <span className="dt-thinking__dot" aria-hidden="true">.</span>
+              <span className="dt-thinking__dot" aria-hidden="true">.</span>
+            </span>
+          ) : (
+            <>
+              {bodyContent}
+              {message.streaming && <span className="dt-cursor" aria-hidden="true" />}
+            </>
+          )}
         </p>
         {message.role === "assistant" && !message.streaming && !isWelcome && (
           <div className="dt-message__footer">
@@ -208,12 +286,15 @@ function MessageBubble({
             )}
           </div>
         )}
+        {message.role === "assistant" && !message.streaming && !isWelcome && (
+          <SourcesList papers={message.citedPapers ?? papers} />
+        )}
       </div>
     </div>
   );
 }
 
-export default function DeepThinkPanel({ path, edges }: Props) {
+export default function DeepThinkPanel({ path, edges, onOpenChange }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [papers, setPapers] = useState<DeepThinkPaper[]>([]);
@@ -319,11 +400,11 @@ export default function DeepThinkPanel({ path, edges }: Props) {
               )
             );
           },
-          onDone: ({ text, confidence }) => {
+          onDone: ({ text, confidence, cited_papers }) => {
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === aiId
-                  ? { ...m, content: text || m.content, streaming: false, confidence }
+                  ? { ...m, content: text || m.content, streaming: false, confidence, citedPapers: cited_papers }
                   : m
               )
             );
@@ -371,7 +452,11 @@ export default function DeepThinkPanel({ path, edges }: Props) {
       {/* Collapsible header — always visible */}
       <button
         className="dt-toggle-header"
-        onClick={() => setIsOpen((v) => !v)}
+        onClick={() => setIsOpen((v) => {
+          const next = !v;
+          onOpenChange?.(next);
+          return next;
+        })}
         aria-expanded={isOpen}
         aria-controls="dt-chat-body"
       >

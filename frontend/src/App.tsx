@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import type { Entity, GraphEdge, EntityFilterValue } from "./types";
 import { jsonPayloadToGraph } from "./data/adapters";
 import { queryEntity, expandEntity } from "./data/dataService";
@@ -34,6 +34,11 @@ function App() {
   const [chatExpanded, setChatExpanded] = useState(true);
   const [overviewRatio, setOverviewRatio] = useState(0.75);
   const rightPaneRef = useRef<HTMLElement>(null);
+  // Keeps a live copy of overviewRatio so the callback closure stays fresh
+  const overviewRatioLiveRef = useRef(0.75);
+  overviewRatioLiveRef.current = overviewRatio;
+  // Saved ratio before "Unpack This" expands the chat (restored on collapse)
+  const savedOverviewRatioRef = useRef(0.75);
 
   // Maps an entity ID that was expanded → the entity/edge IDs that were newly added
   const [expansionSnapshots, setExpansionSnapshots] = useState<
@@ -428,6 +433,23 @@ function App() {
     window.addEventListener("mouseup", onMouseUp);
   }, []);
 
+  const handleDeepThinkOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      savedOverviewRatioRef.current = overviewRatioLiveRef.current;
+      setOverviewRatio(0);
+    } else {
+      setOverviewRatio(savedOverviewRatioRef.current);
+    }
+  }, []);
+
+  // Restore overview ratio when the DeepThink panel is hidden (path drops below 2)
+  const deepThinkPanelVisible = selectionHistory.length >= 2;
+  useEffect(() => {
+    if (!deepThinkPanelVisible && overviewRatioLiveRef.current === 0) {
+      setOverviewRatio(savedOverviewRatioRef.current);
+    }
+  }, [deepThinkPanelVisible]);
+
   const handleFit = useCallback(() => setGraphKey((k) => k + 1), []);
 
   const handleResetExploration = useCallback(() => {
@@ -779,7 +801,7 @@ function App() {
 
               {/* Pinned bottom: Unpack This chatbot */}
               {selectionHistory.length >= 2 && (
-                <DeepThinkPanel path={deepThinkPath} edges={edges} />
+                <DeepThinkPanel path={deepThinkPath} edges={edges} onOpenChange={handleDeepThinkOpenChange} />
               )}
             </div>
           )}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import urllib.error
 import urllib.request
@@ -21,7 +22,7 @@ from backend.services.overview import _get_genai_client
 
 logger = logging.getLogger(__name__)
 
-_MAX_PMIDS = 15
+_MAX_PMIDS = 30
 
 
 def _extract_weighted_pmids(
@@ -334,7 +335,7 @@ def stream_deep_think_events(request: DeepThinkRequest) -> Iterator[str]:
 
 # ── Chat feature ──────────────────────────────────────────────────────────────
 
-_COMPRESSION_THRESHOLD = 20_000  # characters before we invoke Flash to trim
+_COMPRESSION_THRESHOLD = 100_000  # characters; Pro has 2M token context so compress only if very large
 
 
 def _build_papers_context(papers: list[dict], edge_fallback: list[DeepThinkEdge]) -> str:
@@ -413,33 +414,48 @@ def _maybe_compress_context(
 
 
 def _review_response(question: str, papers_context: str, response: str) -> dict:
-    """Fast reviewer LLM that returns a confidence score 1-10."""
-    import re
+    """Reviewer LLM that returns a confidence score 1-10.
 
+    Uses a tightly structured prompt and lenient multi-pattern regex so the
+    score is reliably extracted even when the model adds preamble text or
+    uses lowercase/alternate phrasing.
+    """
     prompt = (
-        f"You are a scientific accuracy reviewer.\n\n"
-        f"User question: {question}\n\n"
-        f"Supporting evidence (papers):\n{papers_context[:6_000]}\n\n"
-        f"AI response:\n{response}\n\n"
-        "Evaluate whether every claim in the AI response is grounded in the provided "
-        "papers and is scientifically accurate. Consider: (1) factual grounding, "
-        "(2) scientific accuracy, (3) completeness.\n\n"
-        "Reply in EXACTLY this format:\n"
-        "CONFIDENCE: X/10\n"
-        "REASONING: <one sentence>"
+        "You are a scientific accuracy reviewer. Score the following AI response.\n\n"
+        f"USER QUESTION: {question}\n\n"
+        f"SUPPORTING PAPERS (excerpt):\n{papers_context[:8_000]}\n\n"
+        f"AI RESPONSE:\n{response}\n\n"
+        "Evaluate: (1) are all claims grounded in the provided papers? "
+        "(2) is the science accurate? (3) is the answer complete?\n\n"
+        "You MUST respond with only these two lines — nothing before, nothing after:\n"
+        "CONFIDENCE: <integer 1-10>/10\n"
+        "REASONING: <one sentence explaining the score>\n\n"
+        "Example of a correct response:\n"
+        "CONFIDENCE: 8/10\n"
+        "REASONING: All key claims are directly supported by the cited abstracts."
     )
     try:
         client = _get_genai_client()
+        # Use the same model chain as the main response for consistency
+        review_model = _deep_think_model_candidates()[0]
         resp = client.models.generate_content(
-            model=settings.GEMINI_OVERVIEW_MODEL,
+            model=review_model,
             contents=[genai_types.Content(role="user", parts=[genai_types.Part(text=prompt)])],
-            config=genai_types.GenerateContentConfig(temperature=0.1, max_output_tokens=150),
+            config=genai_types.GenerateContentConfig(temperature=0.0, max_output_tokens=300),
         )
         text = getattr(resp, "text", "") or ""
-        score_m = re.search(r"CONFIDENCE:\s*(\d+)/10", text)
-        reason_m = re.search(r"REASONING:\s*(.+)", text, re.DOTALL)
+        logger.info("Reviewer raw response (%s): %s", review_model, text[:400])
+
+        # Multi-pattern extraction — most specific first
+        score_m = (
+            re.search(r"CONFIDENCE:\s*(\d+)\s*/\s*10", text, re.IGNORECASE)
+            or re.search(r"(\d+)\s*/\s*10", text)
+            or re.search(r"score[:\s]+(\d+)", text, re.IGNORECASE)
+        )
+        reason_m = re.search(r"REASONING:\s*(.+)", text, re.DOTALL | re.IGNORECASE)
+
         score = int(score_m.group(1)) if score_m else 5
-        reasoning = reason_m.group(1).strip()[:300] if reason_m else ""
+        reasoning = reason_m.group(1).strip()[:300] if reason_m else text.strip()[:300]
         return {"score": min(10, max(1, score)), "reasoning": reasoning}
     except Exception as exc:
         logger.warning("Reviewer LLM failed: %s", exc)
@@ -527,7 +543,7 @@ def stream_deep_think_chat_events(request: DeepThinkChatRequest) -> Iterator[str
         client = _get_genai_client()
         config = genai_types.GenerateContentConfig(
             temperature=0.3,
-            max_output_tokens=1_500,
+            max_output_tokens=4_000,
             system_instruction=system_instruction,
         )
 
@@ -587,4 +603,15 @@ def stream_deep_think_chat_events(request: DeepThinkChatRequest) -> Iterator[str
     except Exception as exc:
         logger.warning("Reviewer failed: %s", exc)
 
-    yield _sse("done", {"text": full_text, "confidence": confidence})
+    # Step 6 — extract actually-cited papers from the response text
+    cited_indices: set[int] = set()
+    for m in re.finditer(r"\[(\d+(?:[,\s]*\d+)*)\]", full_text):
+        for num_str in m.group(1).split(","):
+            num_str = num_str.strip()
+            if num_str.isdigit():
+                idx = int(num_str) - 1  # 0-based
+                if 0 <= idx < len(paper_meta):
+                    cited_indices.add(idx)
+    cited_papers = [{"index": i + 1, **paper_meta[i]} for i in sorted(cited_indices)]
+
+    yield _sse("done", {"text": full_text, "confidence": confidence, "cited_papers": cited_papers})

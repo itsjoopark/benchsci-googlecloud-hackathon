@@ -226,6 +226,7 @@
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
+  transition: flex-basis 0.25s ease;
 }
 
 .pane-resize-handle {
@@ -274,9 +275,13 @@
   overflow-x: hidden;
 }
 
-/* When Unpack This is open, collapse the middle section so the
-   chat panel fills all remaining space below the AI overview. */
+/* When Unpack This is open, collapse the middle section and resize handle so
+   the chat panel fills all remaining space in the right pane. */
 .right-pane-inner:has(.dt-panel--open) .right-pane-middle {
+  display: none;
+}
+
+.right-pane-inner:has(.dt-panel--open) .pane-resize-handle {
   display: none;
 }
 

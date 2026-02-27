@@ -121,6 +121,7 @@ export interface DeepThinkRequestPayload {
 }
 
 export interface DeepThinkPaper {
+  index?: number;
   pmid?: string;
   title: string;
   year?: number;
