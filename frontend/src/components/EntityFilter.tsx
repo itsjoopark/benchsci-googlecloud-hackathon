@@ -103,11 +103,11 @@ export default function EntityFilter({ entityFilter, onEntityFilterChange }: Pro
                   aria-checked={isSelected}
                   onClick={() => handleTypeToggle(opt.value)}
                 >
-                  <span
-                    className="entity-filter-indicator entity-filter-dot"
-                    style={{ background: ENTITY_COLORS[opt.value] }}
-                    aria-hidden="true"
-                  />
+                  <span className="entity-filter-indicator" aria-hidden="true">
+                    <svg className="entity-filter-dot-icon" viewBox="0 0 8 8" width="8" height="8">
+                      <circle cx="4" cy="4" r="4" fill={ENTITY_COLORS[opt.value]} />
+                    </svg>
+                  </span>
                   <span
                     className="entity-filter-option-label"
                   >
