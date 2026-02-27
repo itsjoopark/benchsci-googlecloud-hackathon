@@ -1,12 +1,14 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import type { Entity, GraphEdge, PathNode } from "./types";
 import { jsonPayloadToGraph } from "./data/adapters";
 import { queryEntity, expandEntity } from "./data/dataService";
+import type { OverviewStreamRequestPayload } from "./types/api";
 import SearchBar from "./components/SearchBar";
 import EntityCard from "./components/EntityCard";
 import GraphCanvas from "./components/GraphCanvas";
 import EvidencePanel from "./components/EvidencePanel";
 import EntityAdvancedSearchPanel from "./components/EntityAdvancedSearchPanel";
+import AIOverviewCard from "./components/AIOverviewCard";
 import Toolbar from "./components/Toolbar";
 import ChatInput, { type EntityFilterValue } from "./components/ChatInput";
 import "./App.css";
@@ -27,6 +29,10 @@ function App() {
   const [entityFilter, setEntityFilter] = useState<EntityFilterValue>("all");
   const [selectionHistory, setSelectionHistory] = useState<Entity[]>([]);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
+  const [centerNodeId, setCenterNodeId] = useState<string>("");
+  const [overviewHistory, setOverviewHistory] = useState<
+    Array<{ selectionKey: string; selectionType: "edge" | "node"; summary: string }>
+  >([]);
 
   // Maps an entity ID that was expanded → the entity/edge IDs that were newly added
   const [expansionSnapshots, setExpansionSnapshots] = useState<
@@ -94,12 +100,14 @@ function App() {
         // Backend "not found" message
         if (payload.message) {
           setBackendMessage(payload.message);
+          setCenterNodeId("");
           return;
         }
 
         // Empty results
         if (!payload.nodes || payload.nodes.length === 0) {
           setBackendMessage(`No results found for "${query}".`);
+          setCenterNodeId("");
           return;
         }
 
@@ -142,6 +150,8 @@ function App() {
         setPath([]);
         setExpandedNodes(new Set());
         setExpansionSnapshots(new Map());
+        setCenterNodeId(payload.center_node_id ?? "");
+        setOverviewHistory([]);
 
         // Auto-select the center node
         const center = e.find((ent) => ent.id === payload.center_node_id);
@@ -423,6 +433,65 @@ function App() {
   );
 
   const evidence = selectedEdge?.evidence ?? [];
+  const currentSelectionType: "edge" | "node" | null = selectedEdge
+    ? "edge"
+    : selectedEntity
+      ? "node"
+      : null;
+
+  const overviewRequest: OverviewStreamRequestPayload | null = useMemo(() => {
+    if (!currentSelectionType || !centerNodeId) return null;
+
+    const baseEdges = edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      predicate: edge.predicate,
+      label: edge.label,
+      score: edge.score,
+      provenance: edge.provenance,
+      sourceDb: edge.sourceDb,
+      evidence: (edge.evidence ?? []).map((ev) => ({
+        id: ev.id,
+        pmid: ev.pmid,
+        title: ev.title,
+        year: ev.year,
+        snippet: ev.snippet,
+        source: ev.source,
+        sourceDb: ev.sourceDb,
+      })),
+      paper_count: edge.paperCount,
+      trial_count: edge.trialCount,
+      patent_count: edge.patentCount,
+      cooccurrence_score: edge.cooccurrenceScore,
+    }));
+
+    return {
+      selection_type: currentSelectionType,
+      edge_id: currentSelectionType === "edge" ? selectedEdge?.id : undefined,
+      node_id: currentSelectionType === "node" ? selectedEntity?.id : undefined,
+      center_node_id: centerNodeId,
+      entities: entities.map((entity) => ({
+        id: entity.id,
+        name: entity.name,
+        type: entity.type,
+      })),
+      edges: baseEdges,
+      history: overviewHistory.slice(-3).map((h) => ({
+        selection_key: h.selectionKey,
+        selection_type: h.selectionType,
+        summary: h.summary,
+      })),
+    };
+  }, [
+    currentSelectionType,
+    centerNodeId,
+    edges,
+    entities,
+    selectedEdge?.id,
+    selectedEntity?.id,
+    overviewHistory,
+  ]);
 
   const filteredEntities =
     entityFilter === "all" ||
@@ -607,22 +676,40 @@ function App() {
                 <path d="M15 18l-6-6 6-6" />
               </svg>
             </button>
-          ) : selectedEdge ? (
-            <EvidencePanel
-              edge={selectedEdge}
-              evidence={evidence}
-              entities={entities}
-              onClose={() => setSelectedEdge(null)}
-              onCollapse={() => setRightSidebarCollapsed(true)}
-            />
-          ) : selectedEntity ? (
-            <EntityAdvancedSearchPanel
-              entity={selectedEntity}
-              selectionHistory={selectionHistory}
-              edges={edges}
-              onCollapse={() => setRightSidebarCollapsed(true)}
-            />
-          ) : null}
+          ) : (
+            <>
+              <AIOverviewCard
+                key={overviewRequest ? `${overviewRequest.selection_type}:${overviewRequest.edge_id ?? overviewRequest.node_id ?? "none"}` : "overview-none"}
+                request={overviewRequest}
+                onComplete={(item) => {
+                  setOverviewHistory((prev) => {
+                    const deduped = prev.filter(
+                      (existing) => existing.selectionKey !== item.selectionKey
+                    );
+                    return [...deduped, item].slice(-3);
+                  });
+                }}
+              />
+              <div className="right-pane-content">
+                {selectedEdge ? (
+                  <EvidencePanel
+                    edge={selectedEdge}
+                    evidence={evidence}
+                    entities={entities}
+                    onClose={() => setSelectedEdge(null)}
+                    onCollapse={() => setRightSidebarCollapsed(true)}
+                  />
+                ) : selectedEntity ? (
+                  <EntityAdvancedSearchPanel
+                    entity={selectedEntity}
+                    selectionHistory={selectionHistory}
+                    edges={edges}
+                    onCollapse={() => setRightSidebarCollapsed(true)}
+                  />
+                ) : null}
+              </div>
+            </>
+          )}
         </aside>
       )}
       </div>

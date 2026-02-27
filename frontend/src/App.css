@@ -75,11 +75,14 @@
 .pane-right {
   width: 360px;
   min-width: 360px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
   border-left: 1px solid var(--glass-border);
-  overflow-y: auto;
+  overflow: hidden;
   transition: width 0.25s ease, min-width 0.25s ease, opacity 0.2s ease;
 }
 
@@ -116,6 +119,12 @@
 
 .right-pane-expand:hover {
   background: var(--color-bg-elevated);
+}
+
+.right-pane-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* ── Left pane header ── */
