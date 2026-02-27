@@ -2,11 +2,12 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from backend.models.request import QueryRequest
+from backend.models.request import QueryRequest, ExpandRequest
 from backend.models.response import JsonGraphPayload
 from backend.services.gemini import extract_entity
 from backend.services.bigquery import (
     find_entity,
+    find_entity_by_id,
     find_related_entities,
     fetch_paper_details,
 )
@@ -49,3 +50,25 @@ async def query_entity(request: QueryRequest) -> JsonGraphPayload:
     # Step 5: Build graph payload
     payload = build_graph_payload(entity, related, paper_details)
     return payload
+
+
+@router.post("/expand", response_model=JsonGraphPayload)
+async def expand_entity(request: ExpandRequest) -> JsonGraphPayload:
+    # Step 1: Look up entity by exact ID
+    entity = await find_entity_by_id(request.entity_id)
+    if not entity:
+        return build_not_found_response(request.entity_id)
+
+    # Step 2: Find related entities
+    related = await find_related_entities(entity["entity_id"])
+
+    # Step 3: Batch-fetch paper details
+    all_pmids: list[str] = []
+    for rel in related:
+        all_pmids.extend(rel.get("pmids", []))
+    unique_pmids = list(set(all_pmids))
+
+    paper_details = await fetch_paper_details(unique_pmids)
+
+    # Step 4: Build graph payload
+    return build_graph_payload(entity, related, paper_details)

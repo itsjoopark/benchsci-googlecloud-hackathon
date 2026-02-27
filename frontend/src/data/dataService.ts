@@ -25,6 +25,23 @@ export async function queryEntity(
   return res.json();
 }
 
+export async function expandEntity(
+  entityId: string,
+  signal?: AbortSignal
+): Promise<JsonGraphPayload> {
+  const res = await fetch(`${API_BASE}/api/expand`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entity_id: entityId }),
+    signal,
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "Unknown error");
+    throw new Error(`Expand failed (${res.status}): ${detail}`);
+  }
+  return res.json();
+}
+
 export async function fetchGraph(): Promise<JsonGraphPayload> {
   const res = await fetch("/data_model.json");
   if (!res.ok) throw new Error("Failed to load graph data");
