@@ -5,6 +5,7 @@ import { queryEntity, expandEntity } from "./data/dataService";
 import { saveSnapshot, loadSnapshot } from "./data/snapshotService";
 import type { GraphSnapshot } from "./data/snapshotService";
 import { getSnapshotIdFromUrl, setSnapshotIdInUrl } from "./utils/urlState";
+import { rankCandidates } from "./utils/rankCandidates";
 import type { OverviewStreamRequestPayload } from "./types/api";
 import PathBreadcrumb from "./components/PathBreadcrumb";
 import GraphCanvas from "./components/GraphCanvas";
@@ -193,22 +194,12 @@ function App() {
         const seedNode = e.find((ent) => ent.id === centerId);
         const neighbors = e.filter((ent) => ent.id !== centerId);
 
-        let keptNeighbors: typeof neighbors;
-        if (neighbors.length <= MAX_INITIAL_NODES) {
-          keptNeighbors = neighbors;
-        } else {
-          const scoreMap = new Map<string, number>();
-          for (const edge of ed) {
-            const s = edge.score ?? 0;
-            for (const id of [edge.source, edge.target]) {
-              scoreMap.set(id, Math.max(scoreMap.get(id) ?? 0, s));
-            }
-          }
-          neighbors.sort(
-            (a, b) => (scoreMap.get(b.id) ?? 0) - (scoreMap.get(a.id) ?? 0)
-          );
-          keptNeighbors = neighbors.slice(0, MAX_INITIAL_NODES);
-        }
+        const keptNeighbors = rankCandidates({
+          candidates: neighbors,
+          edges: ed,
+          existingEntities: seedNode ? [seedNode] : [],
+          maxResults: MAX_INITIAL_NODES,
+        });
 
         const finalEntities = seedNode
           ? [seedNode, ...keptNeighbors]
@@ -254,7 +245,7 @@ function App() {
     [addToSelectionHistory]
   );
 
-  // Focus-based blur: only the selected node and its direct neighbors are fully visible
+  // Focus-based blur: only the selected node, its direct neighbors, and path nodes are fully visible
   const disabledNodeIds = useMemo(() => {
     if (entities.length === 0 || !selectedEntity) return new Set<string>();
     const focusId = selectedEntity.id;
@@ -263,12 +254,16 @@ function App() {
       if (edge.source === focusId) activeNodeIds.add(edge.target);
       if (edge.target === focusId) activeNodeIds.add(edge.source);
     }
+    // Nodes on the navigation path are always active
+    for (const id of pathNodeIds) {
+      activeNodeIds.add(id);
+    }
     const disabled = new Set<string>();
     for (const entity of entities) {
       if (!activeNodeIds.has(entity.id)) disabled.add(entity.id);
     }
     return disabled;
-  }, [entities, edges, selectedEntity]);
+  }, [entities, edges, selectedEntity, pathNodeIds]);
 
   const handleNodeSelect = useCallback(
     (nodeId: string) => {
@@ -327,22 +322,12 @@ function App() {
         const existingIds = new Set(entities.map((e) => e.id));
         const trulyNew = newE.filter((e) => !existingIds.has(e.id));
 
-        let keptNew: typeof trulyNew;
-        if (trulyNew.length <= MAX_EXPANSION_NODES) {
-          keptNew = trulyNew;
-        } else {
-          const scoreMap = new Map<string, number>();
-          for (const edge of newEd) {
-            const s = edge.score ?? 0;
-            for (const id of [edge.source, edge.target]) {
-              scoreMap.set(id, Math.max(scoreMap.get(id) ?? 0, s));
-            }
-          }
-          trulyNew.sort(
-            (a, b) => (scoreMap.get(b.id) ?? 0) - (scoreMap.get(a.id) ?? 0)
-          );
-          keptNew = trulyNew.slice(0, MAX_EXPANSION_NODES);
-        }
+        const keptNew = rankCandidates({
+          candidates: trulyNew,
+          edges: newEd,
+          existingEntities: entities,
+          maxResults: MAX_EXPANSION_NODES,
+        });
 
         const alreadyExisting = newE.filter((e) => existingIds.has(e.id));
         const finalEntities = [...alreadyExisting, ...keptNew];

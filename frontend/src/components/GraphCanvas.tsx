@@ -508,9 +508,26 @@ export default function GraphCanvas({
         const s = link.source as SimNode;
         const t = link.target as SimNode;
         if (link.line && s.x !== undefined && s.y !== undefined && t.x !== undefined && t.y !== undefined) {
+          const dx = t.x - s.x;
+          const dy = t.y - s.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          // Offset endpoints so edges stop at circle perimeter instead of center
+          const rSource = NODE_RADIUS * s.size;
+          const rTarget = NODE_RADIUS * t.size;
+          let sx = s.x, sy = s.y, tx = t.x, ty = t.y;
+          if (dist > rSource + rTarget) {
+            const ux = dx / dist;
+            const uy = dy / dist;
+            sx += ux * rSource;
+            sy += uy * rSource;
+            tx -= ux * rTarget;
+            ty -= uy * rTarget;
+          }
+
           const positions = link.line.geometry.attributes.position as THREE.BufferAttribute;
-          positions.setXY(0, s.x, s.y);
-          positions.setXY(1, t.x, t.y);
+          positions.setXY(0, sx, sy);
+          positions.setXY(1, tx, ty);
           positions.needsUpdate = true;
 
           const isSelected = link.id === selectedEdgeIdRef.current;
@@ -542,14 +559,11 @@ export default function GraphCanvas({
             mat.opacity = 0.75 * edgeEased;
           }
 
-          const dx = t.x - s.x;
-          const dy = t.y - s.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-
           if (link.glowMesh) {
-            link.glowMesh.position.set((s.x + t.x) / 2, (s.y + t.y) / 2, 0.1);
+            const trimmedDist = Math.sqrt((tx - sx) ** 2 + (ty - sy) ** 2);
+            link.glowMesh.position.set((sx + tx) / 2, (sy + ty) / 2, 0.1);
             link.glowMesh.rotation.z = Math.atan2(dy, dx);
-            link.glowMesh.scale.set(dist, EDGE_GLOW_WIDTH, 1);
+            link.glowMesh.scale.set(trimmedDist, EDGE_GLOW_WIDTH, 1);
           }
         }
       });
