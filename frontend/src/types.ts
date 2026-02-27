@@ -37,13 +37,6 @@ export interface EvidenceItem {
   sourceDb: string;
 }
 
-export interface PathNode {
-  entityId: string;
-  entityName: string;
-  entityType: EntityType;
-  edgePredicate?: string;
-}
-
 export const ENTITY_COLORS: Record<EntityType, string> = {
   gene: "#4A90D9",
   disease: "#E74C3C",

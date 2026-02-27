@@ -8,7 +8,7 @@ import {
   forceCollide,
 } from "d3-force";
 import type { SimulationNodeDatum, SimulationLinkDatum } from "d3-force";
-import type { Entity, GraphEdge, PathNode } from "../types";
+import type { Entity, GraphEdge } from "../types";
 import { ENTITY_COLORS } from "../types";
 import "./GraphCanvas.css";
 
@@ -18,12 +18,10 @@ interface Props {
   selectedEntityId: string | null;
   selectedEdgeId: string | null;
   expandedNodes: string[];
-  path: PathNode[];
   historyEdgeIds: Set<string>;
   onNodeSelect: (nodeId: string) => void;
   onNodeExpand: (nodeId: string) => void;
   onEdgeSelect: (edgeId: string) => void;
-  onAddToPath: (nodeId: string) => void;
   disabledNodeIds: Set<string>;
 }
 
@@ -58,8 +56,6 @@ const BORDER_OUTER_OFFSET = 2.5;
 // Canvas-rendered node texture constants
 const NODE_TEXTURE_SIZE = 256;
 const NODE_CIRCLE_RADIUS = 80;
-const NODE_GLOW_RADIUS = 120;
-const NODE_ICON_RADIUS = 32;
 // 45 * (80/256) ≈ 14 = NODE_RADIUS — keeps border rings aligned with visible circle
 const NODE_SPRITE_WORLD_SIZE = 45;
 const LABEL_PILL_PADDING_X = 10;
@@ -74,197 +70,8 @@ function colorWithAlpha(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function lightenColor(hex: string, amount: number): string {
-  const r = Math.min(255, parseInt(hex.slice(1, 3), 16) + Math.round(255 * amount));
-  const g = Math.min(255, parseInt(hex.slice(3, 5), 16) + Math.round(255 * amount));
-  const b = Math.min(255, parseInt(hex.slice(5, 7), 16) + Math.round(255 * amount));
-  return `rgb(${r},${g},${b})`;
-}
-
-function darkenColor(hex: string, amount: number): string {
-  const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - Math.round(255 * amount));
-  const g = Math.max(0, parseInt(hex.slice(3, 5), 16) - Math.round(255 * amount));
-  const b = Math.max(0, parseInt(hex.slice(5, 7), 16) - Math.round(255 * amount));
-  return `rgb(${r},${g},${b})`;
-}
-
-// --- Icon drawing functions ---
-
-function drawGeneIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
-  // Double helix: two sine-wave strands + horizontal rungs
-  ctx.strokeStyle = "rgba(255,255,255,0.9)";
-  ctx.lineWidth = 2.5;
-  ctx.lineCap = "round";
-  const steps = 20;
-  const amplitude = r * 0.35;
-  const height = r * 1.6;
-  // First strand
-  ctx.beginPath();
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const y = cy - height / 2 + t * height;
-    const x = cx + Math.sin(t * Math.PI * 2) * amplitude;
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  }
-  ctx.stroke();
-  // Second strand
-  ctx.beginPath();
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const y = cy - height / 2 + t * height;
-    const x = cx - Math.sin(t * Math.PI * 2) * amplitude;
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  }
-  ctx.stroke();
-  // Rungs
-  ctx.lineWidth = 1.5;
-  for (let i = 0; i <= 4; i++) {
-    const t = (i + 0.5) / 5;
-    const y = cy - height / 2 + t * height;
-    const x1 = cx + Math.sin(t * Math.PI * 2) * amplitude;
-    const x2 = cx - Math.sin(t * Math.PI * 2) * amplitude;
-    ctx.beginPath();
-    ctx.moveTo(x1, y);
-    ctx.lineTo(x2, y);
-    ctx.stroke();
-  }
-}
-
-function drawDiseaseIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
-  // Warning triangle with exclamation mark
-  ctx.strokeStyle = "rgba(255,255,255,0.9)";
-  ctx.fillStyle = "rgba(255,255,255,0.9)";
-  ctx.lineWidth = 2.5;
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
-  const triR = r * 1.1;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - triR);
-  ctx.lineTo(cx - triR * Math.cos(Math.PI / 6), cy + triR * Math.sin(Math.PI / 6));
-  ctx.lineTo(cx + triR * Math.cos(Math.PI / 6), cy + triR * Math.sin(Math.PI / 6));
-  ctx.closePath();
-  ctx.stroke();
-  // Exclamation mark
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - triR * 0.4);
-  ctx.lineTo(cx, cy + triR * 0.1);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(cx, cy + triR * 0.3, 2, 0, Math.PI * 2);
-  ctx.fill();
-}
-
-function drawDrugIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
-  // Pill capsule (tilted, two-tone halves)
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(-Math.PI / 6);
-  const w = r * 1.4;
-  const h = r * 0.65;
-  ctx.strokeStyle = "rgba(255,255,255,0.9)";
-  ctx.lineWidth = 2.5;
-  // Left half (outline only)
-  ctx.beginPath();
-  ctx.moveTo(0, -h);
-  ctx.lineTo(-w + h, -h);
-  ctx.arc(-w + h, 0, h, -Math.PI / 2, Math.PI / 2, true);
-  ctx.lineTo(0, h);
-  ctx.stroke();
-  // Right half (filled semi-transparent)
-  ctx.fillStyle = "rgba(255,255,255,0.3)";
-  ctx.beginPath();
-  ctx.moveTo(0, -h);
-  ctx.lineTo(w - h, -h);
-  ctx.arc(w - h, 0, h, -Math.PI / 2, Math.PI / 2, false);
-  ctx.lineTo(0, h);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-  // Center divider
-  ctx.beginPath();
-  ctx.moveTo(0, -h);
-  ctx.lineTo(0, h);
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawPathwayIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
-  // Mini graph: three connected dots in triangle arrangement
-  ctx.strokeStyle = "rgba(255,255,255,0.9)";
-  ctx.fillStyle = "rgba(255,255,255,0.9)";
-  ctx.lineWidth = 2;
-  ctx.lineCap = "round";
-  const dr = r * 0.7;
-  const dotR = r * 0.15;
-  const points = [
-    { x: cx, y: cy - dr },
-    { x: cx - dr * 0.87, y: cy + dr * 0.5 },
-    { x: cx + dr * 0.87, y: cy + dr * 0.5 },
-  ];
-  // Edges
-  for (let i = 0; i < points.length; i++) {
-    for (let j = i + 1; j < points.length; j++) {
-      ctx.beginPath();
-      ctx.moveTo(points[i].x, points[i].y);
-      ctx.lineTo(points[j].x, points[j].y);
-      ctx.stroke();
-    }
-  }
-  // Dots
-  for (const p of points) {
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, dotR, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-function drawProteinIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
-  // Hexagonal benzene ring with vertex dots + inner circle
-  ctx.strokeStyle = "rgba(255,255,255,0.9)";
-  ctx.fillStyle = "rgba(255,255,255,0.9)";
-  ctx.lineWidth = 2;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  const hexR = r * 0.8;
-  const dotR = r * 0.1;
-  // Hexagon
-  ctx.beginPath();
-  for (let i = 0; i < 6; i++) {
-    const angle = (Math.PI / 3) * i - Math.PI / 2;
-    const x = cx + hexR * Math.cos(angle);
-    const y = cy + hexR * Math.sin(angle);
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  }
-  ctx.closePath();
-  ctx.stroke();
-  // Inner circle (benzene)
-  ctx.beginPath();
-  ctx.arc(cx, cy, hexR * 0.5, 0, Math.PI * 2);
-  ctx.stroke();
-  // Vertex dots
-  for (let i = 0; i < 6; i++) {
-    const angle = (Math.PI / 3) * i - Math.PI / 2;
-    const x = cx + hexR * Math.cos(angle);
-    const y = cy + hexR * Math.sin(angle);
-    ctx.beginPath();
-    ctx.arc(x, y, dotR, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-function drawEntityIcon(ctx: CanvasRenderingContext2D, entityType: string, cx: number, cy: number, r: number) {
-  switch (entityType) {
-    case "gene": drawGeneIcon(ctx, cx, cy, r); break;
-    case "disease": drawDiseaseIcon(ctx, cx, cy, r); break;
-    case "drug": drawDrugIcon(ctx, cx, cy, r); break;
-    case "pathway": drawPathwayIcon(ctx, cx, cy, r); break;
-    case "protein": drawProteinIcon(ctx, cx, cy, r); break;
-  }
-}
-
-/** Renders glow + gradient circle + icon + border onto a 256x256 canvas texture */
-function createNodeTexture(entityType: string, color: string): THREE.CanvasTexture {
+/** Renders flat white circle with colored border ring onto a 256x256 canvas texture */
+function createNodeTexture(_entityType: string, color: string): THREE.CanvasTexture {
   const size = NODE_TEXTURE_SIZE;
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -272,35 +79,28 @@ function createNodeTexture(entityType: string, color: string): THREE.CanvasTextu
   const ctx = canvas.getContext("2d")!;
   const cx = size / 2;
   const cy = size / 2;
+  const r = NODE_CIRCLE_RADIUS;
+  const borderWidth = 9;
 
-  // 1. Outer glow aura (entity color → transparent)
-  const glowGrad = ctx.createRadialGradient(cx, cy, NODE_CIRCLE_RADIUS * 0.8, cx, cy, NODE_GLOW_RADIUS);
-  glowGrad.addColorStop(0, colorWithAlpha(color, 0.18));
+  // Subtle outer glow halo
+  const glowGrad = ctx.createRadialGradient(cx, cy, r * 0.75, cx, cy, r * 1.45);
+  glowGrad.addColorStop(0, colorWithAlpha(color, 0.10));
   glowGrad.addColorStop(1, colorWithAlpha(color, 0));
   ctx.fillStyle = glowGrad;
   ctx.fillRect(0, 0, size, size);
 
-  // 2. Main circle with depth gradient (light center → full color → darkened rim)
-  const circleGrad = ctx.createRadialGradient(
-    cx - NODE_CIRCLE_RADIUS * 0.2, cy - NODE_CIRCLE_RADIUS * 0.2, 0,
-    cx, cy, NODE_CIRCLE_RADIUS
-  );
-  circleGrad.addColorStop(0, lightenColor(color, 0.35));
-  circleGrad.addColorStop(0.6, color);
-  circleGrad.addColorStop(1, darkenColor(color, 0.15));
+  // White circle fill
   ctx.beginPath();
-  ctx.arc(cx, cy, NODE_CIRCLE_RADIUS, 0, Math.PI * 2);
-  ctx.fillStyle = circleGrad;
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
   ctx.fill();
 
-  // 3. Entity icon overlay
-  drawEntityIcon(ctx, entityType, cx, cy, NODE_ICON_RADIUS);
-
-  // 3. Thin white border stroke
-  ctx.strokeStyle = "rgba(255,255,255,0.6)";
-  ctx.lineWidth = 2;
+  // Colored border ring (inset by half borderWidth so stroke is fully inside)
+  ctx.beginPath();
+  ctx.arc(cx, cy, r - borderWidth / 2, 0, Math.PI * 2);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = borderWidth;
   ctx.stroke();
-
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.minFilter = THREE.LinearFilter;
@@ -371,12 +171,10 @@ export default function GraphCanvas({
   selectedEntityId,
   selectedEdgeId,
   expandedNodes,
-  path,
   historyEdgeIds,
   onNodeSelect,
   onNodeExpand,
   onEdgeSelect,
-  onAddToPath,
   disabledNodeIds,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -388,9 +186,7 @@ export default function GraphCanvas({
   const onNodeSelectRef = useRef(onNodeSelect);
   const onNodeExpandRef = useRef(onNodeExpand);
   const onEdgeSelectRef = useRef(onEdgeSelect);
-  const onAddToPathRef = useRef(onAddToPath);
   const disabledNodeIdsRef = useRef(disabledNodeIds);
-  const pathIds = new Set(path.map((p) => p.entityId));
 
   // Position persistence for smooth incremental updates (expand)
   const nodePositionsRef = useRef<Map<string, { x: number; y: number }>>(
@@ -404,7 +200,6 @@ export default function GraphCanvas({
   onNodeSelectRef.current = onNodeSelect;
   onNodeExpandRef.current = onNodeExpand;
   onEdgeSelectRef.current = onEdgeSelect;
-  onAddToPathRef.current = onAddToPath;
   disabledNodeIdsRef.current = disabledNodeIds;
 
   useEffect(() => {
@@ -613,17 +408,6 @@ export default function GraphCanvas({
         hitMesh.add(badge);
       }
 
-      // Path highlight
-      if (pathIds.has(node.id)) {
-        const ringGeo = createBorderRing(
-          NODE_RADIUS + BORDER_INNER_OFFSET,
-          NODE_RADIUS + BORDER_OUTER_OFFSET
-        );
-        const ringMat = new THREE.MeshBasicMaterial({ color: 0xf39c12 });
-        const ring = new THREE.Mesh(ringGeo, ringMat);
-        ring.position.z = 0.5;
-        hitMesh.add(ring);
-      }
 
       // Label
       const texture = createLabelTexture(node.label);
@@ -940,15 +724,6 @@ export default function GraphCanvas({
       }
     };
 
-    // Right-click → add to path
-    const handleContextMenu = (e: MouseEvent) => {
-      e.preventDefault();
-      const node = getIntersectedNode(e);
-      if (node) {
-        onAddToPathRef.current(node.userData.nodeId as string);
-      }
-    };
-
     // Scroll → zoom
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -961,7 +736,6 @@ export default function GraphCanvas({
     container.addEventListener("mouseleave", handleMouseLeave);
     container.addEventListener("mousedown", handleMouseDown);
     container.addEventListener("mouseup", handleMouseUp);
-    container.addEventListener("contextmenu", handleContextMenu);
     container.addEventListener("wheel", handleWheel, { passive: false });
 
     // Resize
@@ -1031,7 +805,6 @@ export default function GraphCanvas({
       container.removeEventListener("mouseleave", handleMouseLeave);
       container.removeEventListener("mousedown", handleMouseDown);
       container.removeEventListener("mouseup", handleMouseUp);
-      container.removeEventListener("contextmenu", handleContextMenu);
       container.removeEventListener("wheel", handleWheel);
       resizeObs.disconnect();
       // Dispose node sprites and labels (cached textures are preserved across renders)
