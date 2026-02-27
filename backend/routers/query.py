@@ -3,10 +3,12 @@ import logging
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
+from backend.models.deep_think import DeepThinkRequest
 from backend.models.overview import OverviewStreamRequest
 from backend.models.request import QueryRequest, ExpandRequest
 from backend.models.response import JsonGraphPayload
 from backend.services.gemini import extract_entity
+from backend.services.deep_think import stream_deep_think_events
 from backend.services.overview import stream_overview_events, verify_vector_overview
 from backend.services.bigquery import (
     find_entity,
@@ -93,3 +95,16 @@ async def stream_overview(request: OverviewStreamRequest) -> StreamingResponse:
 @router.get("/overview/verify")
 async def verify_overview_vector() -> dict:
     return verify_vector_overview()
+
+
+@router.post("/deep-think/stream")
+async def stream_deep_think(request: DeepThinkRequest) -> StreamingResponse:
+    return StreamingResponse(
+        stream_deep_think_events(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

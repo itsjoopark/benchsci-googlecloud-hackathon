@@ -1,0 +1,247 @@
+.deep-think-panel {
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+  background:
+    radial-gradient(110% 70% at 10% 0%, rgba(155, 89, 182, 0.08), transparent 58%),
+    radial-gradient(80% 60% at 90% 0%, rgba(243, 156, 18, 0.06), transparent 55%),
+    var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  flex-shrink: 0;
+}
+
+.deep-think-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
+}
+
+.deep-think-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.deep-think-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #9b59b6;
+  opacity: 0.85;
+}
+
+.deep-think-title {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--color-text-primary);
+}
+
+.deep-think-status {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.deep-think-status.done {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #1e7d47;
+}
+
+.deep-think-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.deep-think-reset {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--color-text-secondary);
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s;
+}
+
+.deep-think-reset:hover {
+  color: var(--color-text-primary);
+}
+
+.deep-think-path-summary {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-sm);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deep-think-analyze-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(155, 89, 182, 0.4);
+  background: rgba(155, 89, 182, 0.08);
+  color: #7d3c98;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  width: 100%;
+  justify-content: center;
+}
+
+.deep-think-analyze-btn:hover {
+  background: rgba(155, 89, 182, 0.15);
+  border-color: rgba(155, 89, 182, 0.6);
+}
+
+.deep-think-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: var(--space-sm) 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.deep-think-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(155, 89, 182, 0.25);
+  border-top-color: #9b59b6;
+  border-radius: 50%;
+  animation: deep-think-spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes deep-think-spin {
+  to { transform: rotate(360deg); }
+}
+
+.deep-think-citations {
+  margin-bottom: var(--space-sm);
+}
+
+.deep-think-citations-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.deep-think-citations-list {
+  list-style: decimal;
+  padding-left: 18px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.deep-think-citation-item {
+  font-size: var(--font-size-xs);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.deep-think-citation-link {
+  color: #2c5f91;
+  text-decoration: none;
+  line-height: 1.4;
+}
+
+a.deep-think-citation-link:hover {
+  text-decoration: underline;
+}
+
+.deep-think-citation-year {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.deep-think-body {
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.68);
+  min-height: 80px;
+  padding: var(--space-md);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: var(--space-sm);
+}
+
+.deep-think-body.streaming::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 0%,
+    transparent 42%,
+    rgba(255, 255, 255, 0.44) 50%,
+    transparent 58%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: deep-think-sheen 1.65s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes deep-think-sheen {
+  to { transform: translateX(100%); }
+}
+
+.deep-think-text,
+.deep-think-placeholder {
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  position: relative;
+  z-index: 1;
+}
+
+.deep-think-text {
+  color: var(--color-text-primary);
+}
+
+.deep-think-error-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.deep-think-error {
+  font-size: var(--font-size-xs);
+  color: #9b1c1c;
+}
+
+.deep-think-retry {
+  border: 1px solid var(--color-border);
+  background: #fff;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.deep-think-retry:hover {
+  background: #f5f5f5;
+}

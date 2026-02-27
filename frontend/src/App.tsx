@@ -9,6 +9,7 @@ import GraphCanvas from "./components/GraphCanvas";
 import EvidencePanel from "./components/EvidencePanel";
 import EntityAdvancedSearchPanel from "./components/EntityAdvancedSearchPanel";
 import AIOverviewCard from "./components/AIOverviewCard";
+import DeepThinkPanel from "./components/DeepThinkPanel";
 import Toolbar from "./components/Toolbar";
 import ChatInput, { type EntityFilterValue } from "./components/ChatInput";
 import "./App.css";
@@ -664,7 +665,7 @@ function App() {
       </main>
 
       {/* Right Pane */}
-      {(selectedEdge || selectedEntity) && (
+      {(selectedEdge || selectedEntity || path.length >= 2) && (
         <aside
           className={`pane pane-right ${rightSidebarCollapsed ? "collapsed" : ""}`}
         >
@@ -687,6 +688,9 @@ function App() {
             </button>
           ) : (
             <>
+              {path.length >= 2 && (
+                <DeepThinkPanel path={path} edges={edges} />
+              )}
               <AIOverviewCard
                 key={overviewRequest ? `${overviewRequest.selection_type}:${overviewRequest.edge_id ?? overviewRequest.node_id ?? "none"}` : "overview-none"}
                 request={overviewRequest}

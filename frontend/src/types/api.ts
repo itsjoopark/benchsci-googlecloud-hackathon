@@ -93,3 +93,36 @@ export interface OverviewCitation {
   kind: "evidence" | "rag";
   label: string;
 }
+
+// Deep Think types
+export interface DeepThinkPathNodePayload {
+  entity_id: string;
+  entity_name: string;
+  entity_type: string;
+  edge_predicate?: string;
+}
+
+export interface DeepThinkEdgeEvidencePayload {
+  pmid?: string;
+  title?: string;
+  snippet: string;
+}
+
+export interface DeepThinkEdgePayload {
+  source: string;
+  target: string;
+  predicate: string;
+  evidence: DeepThinkEdgeEvidencePayload[];
+}
+
+export interface DeepThinkRequestPayload {
+  path: DeepThinkPathNodePayload[];
+  edges: DeepThinkEdgePayload[];
+}
+
+export interface DeepThinkPaper {
+  pmid?: string;
+  title: string;
+  year?: number;
+  abstract_snippet?: string;
+}
