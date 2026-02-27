@@ -117,10 +117,7 @@ function App() {
         setSelectedEdge(null);
         return;
       }
-      const entity =
-        getEntityById(entities, nodeId) ??
-        (graphPayload &&
-          jsonPayloadToGraph(graphPayload).entities.find((e) => e.id === nodeId));
+      const entity = getEntityById(entities, nodeId);
       if (entity) {
         setSelectedEntity(entity);
         setSelectedEdge(null);
@@ -129,7 +126,7 @@ function App() {
         setRightSidebarCollapsed(false);
       }
     },
-    [entities, graphPayload, addToSelectionHistory, selectedEntity]
+    [entities, addToSelectionHistory, selectedEntity]
   );
 
   const handleNodeExpand = useCallback((nodeId: string) => {

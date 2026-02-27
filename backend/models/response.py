@@ -30,6 +30,10 @@ class JsonEdge(BaseModel):
     confidence_score: float | None = None
     provenance: str
     evidence: list[JsonEvidence]
+    paper_count: int = 0
+    trial_count: int = 0
+    patent_count: int = 0
+    cooccurrence_score: int = 0
 
 
 class JsonGraphPayload(BaseModel):
