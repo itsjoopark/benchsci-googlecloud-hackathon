@@ -40,27 +40,32 @@ for inst in pkg25-import pkg25-import-b pkg25-import-c; do
   fi
 done
 
-# ── Build IFNULL query for a table ────────────────────────────────────
-build_query() {
+# ── Build IFNULL query + BQ schema for a table ───────────────────────
+# Sets two global vars: BUILT_QUERY and BUILT_SCHEMA
+build_query_and_schema() {
   local instance="$1"
   local table="$2"
 
+  BUILT_QUERY=""
+  BUILT_SCHEMA=""
+
   # Get schema from MySQL
   local schema_csv
-  schema_csv=$(gcloud sql export csv "${instance}" \
+  gcloud sql export csv "${instance}" \
     "gs://${BUCKET}/${GCS_EXPORT_PREFIX}/_schema_${table}.csv" \
     --database="${DB_NAME}" \
     --project="${PROJECT_ID}" \
     --query="SELECT COLUMN_NAME, IS_NULLABLE, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='${table}' ORDER BY ORDINAL_POSITION" \
-    --quiet 2>/dev/null && \
-    gsutil cat "gs://${BUCKET}/${GCS_EXPORT_PREFIX}/_schema_${table}.csv" 2>/dev/null)
+    --quiet 2>/dev/null
+  schema_csv=$(gsutil cat "gs://${BUCKET}/${GCS_EXPORT_PREFIX}/_schema_${table}.csv" 2>/dev/null)
 
   if [[ -z "${schema_csv}" ]]; then
-    echo "SELECT * FROM ${table}"
+    BUILT_QUERY="SELECT * FROM ${table}"
     return
   fi
 
   local cols=""
+  local bq_schema=""
   while IFS= read -r line; do
     # Parse: "col_name","YES|NO","data_type"
     local col_name
@@ -70,14 +75,26 @@ build_query() {
     local dtype
     dtype=$(echo "${line}" | sed 's/^"[^"]*","[^"]*","\([^"]*\)"/\1/')
 
+    # Map MySQL type → BQ type
+    local bq_type="STRING"
+    case "${dtype}" in
+      int|tinyint|smallint|mediumint) bq_type="INT64" ;;
+      bigint)                         bq_type="INT64" ;;
+      double|float|decimal)           bq_type="FLOAT64" ;;
+      date|datetime|timestamp)        bq_type="STRING" ;; # keep as string to avoid parse issues
+      binary)                         bq_type="INT64" ;;
+      *)                              bq_type="STRING" ;;
+    esac
+    bq_schema="${bq_schema}${col_name}:${bq_type},"
+
     if [[ "${nullable}" == "YES" ]]; then
       # Wrap in IFNULL based on data type
       case "${dtype}" in
-        int|bigint|double|float|decimal|tinyint|smallint)
+        int|bigint|double|float|decimal|tinyint|smallint|mediumint)
           cols="${cols}IFNULL(\`${col_name}\`, 0) AS \`${col_name}\`,"
           ;;
         date|datetime|timestamp)
-          cols="${cols}IFNULL(\`${col_name}\`, '1970-01-01') AS \`${col_name}\`,"
+          cols="${cols}IFNULL(CAST(\`${col_name}\` AS CHAR), '') AS \`${col_name}\`,"
           ;;
         binary)
           cols="${cols}IFNULL(\`${col_name}\`, 0) AS \`${col_name}\`,"
@@ -91,9 +108,12 @@ build_query() {
     fi
   done <<< "${schema_csv}"
 
-  # Remove trailing comma
+  # Remove trailing commas
   cols="${cols%,}"
-  echo "SELECT ${cols} FROM ${table}"
+  bq_schema="${bq_schema%,}"
+
+  BUILT_QUERY="SELECT ${cols} FROM ${table}"
+  BUILT_SCHEMA="${bq_schema}"
 }
 
 # ── Export + Load one table ───────────────────────────────────────────
@@ -102,17 +122,16 @@ export_and_load() {
   local table="$2"
   local GCS_CSV="gs://${BUCKET}/${GCS_EXPORT_PREFIX}/${table}.csv.gz"
 
-  printf "[%s] %-45s building query ... " "$(ts)" "${table}"
+  printf "[%s] %-45s schema ... " "$(ts)" "${table}"
 
-  local query
-  query=$(build_query "${instance}" "${table}")
+  build_query_and_schema "${instance}" "${table}"
 
   printf "exporting ... "
   if ! gcloud sql export csv "${instance}" "${GCS_CSV}" \
        --database="${DB_NAME}" \
        --project="${PROJECT_ID}" \
        --offload \
-       --query="${query}" \
+       --query="${BUILT_QUERY}" \
        --quiet 2>/tmp/reexport_err_${table}.log; then
     printf "EXPORT FAIL\n"
     head -2 /tmp/reexport_err_${table}.log
@@ -120,16 +139,35 @@ export_and_load() {
   fi
 
   printf "loading ... "
-  if ! bq --project_id="${PROJECT_ID}" load \
-       --source_format=CSV \
-       --autodetect \
-       --allow_quoted_newlines \
-       --replace \
-       "${DATASET}.${table}" \
-       "${GCS_CSV}" 2>/tmp/reexport_bqerr_${table}.log; then
-    printf "BQ FAIL\n"
-    head -2 /tmp/reexport_bqerr_${table}.log
-    return 1
+  local schema_flag=""
+  if [[ -n "${BUILT_SCHEMA}" ]]; then
+    schema_flag="${BUILT_SCHEMA}"
+  fi
+
+  if [[ -n "${schema_flag}" ]]; then
+    if ! bq --project_id="${PROJECT_ID}" load \
+         --source_format=CSV \
+         --schema="${schema_flag}" \
+         --allow_quoted_newlines \
+         --replace \
+         "${DATASET}.${table}" \
+         "${GCS_CSV}" 2>/tmp/reexport_bqerr_${table}.log; then
+      printf "BQ FAIL\n"
+      head -2 /tmp/reexport_bqerr_${table}.log
+      return 1
+    fi
+  else
+    if ! bq --project_id="${PROJECT_ID}" load \
+         --source_format=CSV \
+         --autodetect \
+         --allow_quoted_newlines \
+         --replace \
+         "${DATASET}.${table}" \
+         "${GCS_CSV}" 2>/tmp/reexport_bqerr_${table}.log; then
+      printf "BQ FAIL\n"
+      head -2 /tmp/reexport_bqerr_${table}.log
+      return 1
+    fi
   fi
 
   printf "OK\n"
