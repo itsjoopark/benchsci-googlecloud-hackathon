@@ -13,6 +13,9 @@
 }
 
 .entity-advanced-search-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   font-size: var(--font-size-lg);
   font-weight: 700;
   color: var(--color-text-primary);
@@ -117,11 +120,36 @@
   border-radius: 9999px;
 }
 
-.entity-advanced-search-source-link {
+.entity-advanced-search-source-pmid {
   font-size: var(--font-size-xs);
+  font-family: monospace;
   color: var(--color-gene);
   margin-left: auto;
   white-space: nowrap;
+  background: rgba(74, 144, 217, 0.08);
+  border: 1px solid rgba(74, 144, 217, 0.25);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+/* ── Source grouping ── */
+
+.entity-advanced-search-source-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.entity-advanced-search-source-group + .entity-advanced-search-source-group {
+  margin-top: var(--space-md);
+}
+
+.entity-advanced-search-source-group-label {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-text-secondary);
 }
 
 /* ── Co-occurrence stats ── */
@@ -197,4 +225,25 @@
 
 .entity-advanced-search-clinical-list li:last-child {
   margin-bottom: 0;
+}
+
+/* ── Heading label/entity split ── */
+
+.eas-heading-label {
+  font-weight: 700;
+  color: #2c5f91;
+}
+
+.eas-heading-entity {
+  font-size: 0.9em;
+  font-weight: 400;
+  color: var(--color-text-primary);
+}
+
+/* ── Co-occurrence verb ── */
+
+.cooc-verb {
+  font-weight: 700;
+  color: #2c5f91;
+  text-transform: capitalize;
 }

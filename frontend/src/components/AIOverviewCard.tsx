@@ -97,7 +97,6 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [citations, setCitations] = useState<OverviewCitation[]>([]);
   const [retryNonce, setRetryNonce] = useState(0);
-  const [collapsed, setCollapsed] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const requestRef = useRef<OverviewStreamRequestPayload | null>(null);
   const onCompleteRef = useRef(onComplete);
@@ -134,7 +133,6 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
         setVisibleCount(0);
         setError(null);
         setCitations([]);
-        setCollapsed(false);
         setLoading(true);
       },
       onContext: (payload) => {
@@ -193,7 +191,6 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
   }, [rawText, visibleCount]);
 
   const displayedText = rawText.slice(0, visibleCount);
-  const canCollapse = displayedText.length > 260 || displayedText.includes("\n");
   const parsed = useMemo(() => parseInlineCitations(displayedText), [displayedText]);
   const parsedCitationLabels = useMemo(() => {
     const labelSet = new Set<string>();
@@ -206,6 +203,14 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
     return Array.from(labelSet).filter(Boolean);
   }, [citations, parsed.citations]);
 
+  const citationKindMap = useMemo(() => {
+    const map = new Map<string, OverviewCitation["kind"]>();
+    for (const c of citations) {
+      map.set(normalizeCitationLabel(c.label), c.kind);
+    }
+    return map;
+  }, [citations]);
+
   return (
     <section className="ai-overview-card" aria-live="polite">
       <div className="ai-overview-header">
@@ -217,11 +222,10 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
           </span>
           <h3 className="ai-overview-title">AI Overview</h3>
         </div>
-        {loading && <span className="ai-overview-status">Streaming...</span>}
       </div>
 
       <div
-        className={`ai-overview-body ${loading ? "streaming" : ""} ${collapsed ? "collapsed" : ""}`}
+        className={`ai-overview-body ${loading ? "streaming" : ""}`}
       >
         {parsed.body ? (
           <p className={`ai-overview-text ${loading ? "streaming" : ""}`}>
@@ -232,68 +236,47 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
         ) : (
           <p className="ai-overview-placeholder">Select a node or edge to generate context.</p>
         )}
+
+        {parsedCitationLabels.length > 0 && (
+          <div className="ai-overview-citations">
+            <h4 className="ai-overview-citations-label">Citations</h4>
+            {parsedCitationLabels.slice(0, 12).map((label) => {
+              const pmidMatch = label.match(/^PMID:(\d+)$/i);
+              const kind = citationKindMap.get(label) ?? "evidence";
+              if (pmidMatch) {
+                return (
+                  <a
+                    key={label}
+                    href={`https://pubmed.ncbi.nlm.nih.gov/${pmidMatch[1]}/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`ai-overview-citation ${kind}`}
+                  >
+                    {label}
+                  </a>
+                );
+              }
+              return (
+                <span key={label} className={`ai-overview-citation ${kind}`}>
+                  {label}
+                </span>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {(error || parsedCitationLabels.length > 0 || canCollapse) && (
+      {error && (
         <div className="ai-overview-footer">
-          {error && (
-            <div className="ai-overview-error-row">
-              <span className="ai-overview-error">{error}</span>
-              <button
-                className="ai-overview-retry"
-                onClick={() => setRetryNonce((n) => n + 1)}
-              >
-                Retry
-              </button>
-            </div>
-          )}
-
-          {parsedCitationLabels.length > 0 && (
-            <div className="ai-overview-citations">
-              <h4 className="ai-overview-citations-label">Citations</h4>
-              {parsedCitationLabels.slice(0, 12).map((label) => {
-                const pmidMatch = label.match(/^PMID:(\d+)$/i);
-                if (pmidMatch) {
-                  return (
-                    <a
-                      key={label}
-                      href={`https://pubmed.ncbi.nlm.nih.gov/${pmidMatch[1]}/`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="ai-overview-citation evidence"
-                    >
-                      {label}
-                    </a>
-                  );
-                }
-                return (
-                  <span key={label} className="ai-overview-citation evidence">
-                    {label}
-                  </span>
-                );
-              })}
-            </div>
-          )}
-
-          {canCollapse && (
-            <div className="ai-overview-toggle-row">
-              <button
-                type="button"
-                className="ai-overview-toggle"
-                onClick={() => setCollapsed((prev) => !prev)}
-                aria-expanded={!collapsed}
-                aria-label={collapsed ? "Expand AI overview" : "Collapse AI overview"}
-                title={collapsed ? "Expand overview" : "Collapse overview"}
-              >
-                <span className={`ai-overview-toggle-arrow ${collapsed ? "down" : "up"}`}>
-                  {collapsed ? "↓" : "↑"}
-                </span>
-                <span className="ai-overview-toggle-label">
-                  {collapsed ? "Show full overview" : "Collapse overview"}
-                </span>
-              </button>
-            </div>
-          )}
+          <div className="ai-overview-error-row">
+            <span className="ai-overview-error">{error}</span>
+            <button
+              className="ai-overview-retry"
+              onClick={() => setRetryNonce((n) => n + 1)}
+            >
+              Retry
+            </button>
+          </div>
         </div>
       )}
     </section>

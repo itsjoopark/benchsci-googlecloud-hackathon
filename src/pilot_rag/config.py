@@ -34,6 +34,9 @@ class Settings:
     embed_max_retries: int = int(os.getenv("EMBED_MAX_RETRIES", "6"))
     embed_base_backoff_ms: int = int(os.getenv("EMBED_BASE_BACKOFF_MS", "500"))
     embed_request_interval_ms: int = int(os.getenv("EMBED_REQUEST_INTERVAL_MS", "100"))
+    recent_first: bool = os.getenv("RECENT_FIRST", "true").lower() == "true"
+    priority_seed_docs: int = int(os.getenv("PRIORITY_SEED_DOCS", "50000"))
+    priority_term: str = os.getenv("PRIORITY_TERM", "brca1")
 
     # API behavior
     default_top_k: int = int(os.getenv("DEFAULT_TOP_K", "5"))

@@ -39,6 +39,12 @@ class OverviewHistoryItem(BaseModel):
     summary: str
 
 
+class OverviewPathEntity(BaseModel):
+    id: str
+    name: str
+    type: str
+
+
 class OverviewStreamRequest(BaseModel):
     selection_type: str = Field(..., pattern=r"^(edge|node)$")
     edge_id: str | None = None
@@ -47,3 +53,4 @@ class OverviewStreamRequest(BaseModel):
     entities: list[OverviewEntity] = Field(default_factory=list)
     edges: list[OverviewEdge] = Field(default_factory=list)
     history: list[OverviewHistoryItem] = Field(default_factory=list)
+    path: list[OverviewPathEntity] = Field(default_factory=list)

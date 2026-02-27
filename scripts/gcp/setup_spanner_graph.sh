@@ -18,7 +18,7 @@ gcloud spanner instances create "${INSTANCE_ID}" \
   --config="${CONFIG}" \
   --edition=ENTERPRISE \
   --description="BioRender knowledge graph" \
-  --processing-units=100 \
+  --processing-units=300 \
   || echo "Instance may already exist — continuing."
 
 echo "==> Creating database '${DATABASE_ID}'..."
@@ -45,6 +45,9 @@ CREATE TABLE BioRelationship (
   FOREIGN KEY (entity_id1) REFERENCES BioEntity (entity_id),
   FOREIGN KEY (entity_id2) REFERENCES BioEntity (entity_id),
 ) PRIMARY KEY (entity_id1, entity_id2, relation_type);
+
+CREATE INDEX BioRelationship_Reverse
+  ON BioRelationship (entity_id2, entity_id1, relation_type);
 
 CREATE OR REPLACE PROPERTY GRAPH BioGraph
   NODE TABLES (BioEntity)

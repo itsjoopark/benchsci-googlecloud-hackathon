@@ -12,11 +12,10 @@
   border-top: 1px solid var(--glass-border);
 }
 
-/* When open the panel grows to fill remaining space in the right pane (up to 50%) */
+/* When open the panel grows to fill all remaining space in the right pane */
 .dt-panel--open {
   flex: 1;
   min-height: 0;
-  max-height: 50%;
 }
 
 /* ── Toggle header button ───────────────────────────────────────── */

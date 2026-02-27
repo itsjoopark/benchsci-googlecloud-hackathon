@@ -1,12 +1,12 @@
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import type { Entity, GraphEdge, EntityFilterValue } from "./types";
 import { jsonPayloadToGraph } from "./data/adapters";
 import { queryEntity, expandEntity } from "./data/dataService";
 import { saveSnapshot, loadSnapshot } from "./data/snapshotService";
 import type { GraphSnapshot } from "./data/snapshotService";
 import { getSnapshotIdFromUrl, setSnapshotIdInUrl } from "./utils/urlState";
+import { rankCandidates } from "./utils/rankCandidates";
 import type { OverviewStreamRequestPayload } from "./types/api";
-import SearchBar from "./components/SearchBar";
 import PathBreadcrumb from "./components/PathBreadcrumb";
 import GraphCanvas from "./components/GraphCanvas";
 import EvidencePanel from "./components/EvidencePanel";
@@ -30,11 +30,14 @@ function App() {
   const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<GraphEdge | null>(null);
   const [graphKey, setGraphKey] = useState(0);
+  const [fitRequest, setFitRequest] = useState(0);
   const [expandedNodes, setExpandedNodes] = useState<string[]>([]);
   const [entityFilter, setEntityFilter] = useState<EntityFilterValue>("all");
   const [selectionHistory, setSelectionHistory] = useState<Entity[]>([]);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
   const [chatExpanded, setChatExpanded] = useState(true);
+  const [overviewRatio, setOverviewRatio] = useState(0.40);
+  const leftPaneBodyRef = useRef<HTMLDivElement>(null);
   const [activeRightSection, setActiveRightSection] = useState<'overview' | 'search' | 'deepthink'>('overview');
 
   // Maps an entity ID that was expanded → the entity/edge IDs that were newly added
@@ -69,7 +72,7 @@ function App() {
   const [shareToast, setShareToast] = useState<string | null>(null);
 
   // Snapshot of the initial query result so Reset can restore it
-  const initialGraphStateRef = useRef<{ entities: Entity[]; edges: GraphEdge[]; centerNodeId: string } | null>(null);
+  const initialGraphStateRef = useRef<{ entities: Entity[]; edges: GraphEdge[]; centerNodeId: string; pathNodeIds?: string[] } | null>(null);
 
   /** Merge incoming entities from an expand response. New entities are added;
    * existing entities that appear in the response are updated with the
@@ -140,27 +143,42 @@ function App() {
 
         // === PATH MODE: shortest path response ===
         if (payload.path_node_ids && payload.path_node_ids.length > 0) {
+          const pathIds = payload.path_node_ids;
+
           // Show ALL nodes on the path (no neighbor limiting)
           initialGraphStateRef.current = {
             entities: e,
             edges: ed,
             centerNodeId: payload.center_node_id ?? "",
+            pathNodeIds: pathIds,
           };
 
           setEntities(e);
           setEdges(ed);
           setSelectedEdge(null);
-          setExpandedNodes(payload.path_node_ids);
+          // Mark all path nodes EXCEPT the last as expanded,
+          // so the user can double-click the last node to expand
+          setExpandedNodes(pathIds.slice(0, -1));
           setExpansionSnapshots(new Map());
           setCenterNodeId(payload.center_node_id ?? "");
-          setPathNodeIds(payload.path_node_ids);
+          setPathNodeIds(pathIds);
           setOverviewHistory([]);
 
-          // Set selection history to all path entities for DeepThink
-          setSelectionHistory(e);
-          if (e[0]) {
-            setSelectedEntity(e[0]);
+          // Build selection history in path order (newest-first for PathBreadcrumb)
+          const pathOrderedEntities = pathIds
+            .map((id) => e.find((ent) => ent.id === id))
+            .filter((ent): ent is Entity => !!ent);
+          setSelectionHistory([...pathOrderedEntities].reverse());
+
+          // Select the first path entity (the starting point) for AI overview
+          const startEntity = e.find((ent) => ent.id === pathIds[0]);
+          if (startEntity) {
+            setSelectedEntity(startEntity);
           }
+
+          // Open both sidebars so exploration path + AI overview are visible
+          setSidebarOpen(true);
+          setRightSidebarCollapsed(false);
 
           setGraphKey((k) => k + 1);
           setChatExpanded(false);
@@ -176,22 +194,12 @@ function App() {
         const seedNode = e.find((ent) => ent.id === centerId);
         const neighbors = e.filter((ent) => ent.id !== centerId);
 
-        let keptNeighbors: typeof neighbors;
-        if (neighbors.length <= MAX_INITIAL_NODES) {
-          keptNeighbors = neighbors;
-        } else {
-          const scoreMap = new Map<string, number>();
-          for (const edge of ed) {
-            const s = edge.score ?? 0;
-            for (const id of [edge.source, edge.target]) {
-              scoreMap.set(id, Math.max(scoreMap.get(id) ?? 0, s));
-            }
-          }
-          neighbors.sort(
-            (a, b) => (scoreMap.get(b.id) ?? 0) - (scoreMap.get(a.id) ?? 0)
-          );
-          keptNeighbors = neighbors.slice(0, MAX_INITIAL_NODES);
-        }
+        const keptNeighbors = rankCandidates({
+          candidates: neighbors,
+          edges: ed,
+          existingEntities: seedNode ? [seedNode] : [],
+          maxResults: MAX_INITIAL_NODES,
+        });
 
         const finalEntities = seedNode
           ? [seedNode, ...keptNeighbors]
@@ -222,7 +230,9 @@ function App() {
         }
 
         setGraphKey((k) => k + 1);
+        setTimeout(() => setFitRequest((n) => n + 1), 600);
         setChatExpanded(false);
+        setSidebarOpen(true);
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") return;
         setQueryError(
@@ -235,39 +245,28 @@ function App() {
     [addToSelectionHistory]
   );
 
-  const handleSearchSelect = useCallback(
-    (entity: Entity) => {
-      setSelectedEntity(entity);
-      setSelectedEdge(null);
-      setExpandedNodes([]);
-      setExpansionSnapshots(new Map());
-      addToSelectionHistory(entity);
-      setSidebarOpen(true);
-      setRightSidebarCollapsed(false);
-      setGraphKey((k) => k + 1);
-    },
-    [addToSelectionHistory]
-  );
-
-  // Path-constrained expansion: only the last expanded node's neighbors are interactive
+  // Focus-based blur: only the selected node, its direct neighbors, and path nodes are fully visible
   const disabledNodeIds = useMemo(() => {
-    if (entities.length === 0 || expandedNodes.length === 0) return new Set<string>();
-    const lastExpandedId = expandedNodes[expandedNodes.length - 1];
-    const activeNodeIds = new Set<string>(expandedNodes);
+    if (entities.length === 0 || !selectedEntity) return new Set<string>();
+    const focusId = selectedEntity.id;
+    const activeNodeIds = new Set<string>([focusId]);
     for (const edge of edges) {
-      if (edge.source === lastExpandedId) activeNodeIds.add(edge.target);
-      if (edge.target === lastExpandedId) activeNodeIds.add(edge.source);
+      if (edge.source === focusId) activeNodeIds.add(edge.target);
+      if (edge.target === focusId) activeNodeIds.add(edge.source);
+    }
+    // Nodes on the navigation path are always active
+    for (const id of pathNodeIds) {
+      activeNodeIds.add(id);
     }
     const disabled = new Set<string>();
     for (const entity of entities) {
       if (!activeNodeIds.has(entity.id)) disabled.add(entity.id);
     }
     return disabled;
-  }, [entities, edges, expandedNodes]);
+  }, [entities, edges, selectedEntity, pathNodeIds]);
 
   const handleNodeSelect = useCallback(
     (nodeId: string) => {
-      if (disabledNodeIds.has(nodeId)) return;
       // Toggle: clicking the already-selected node deselects it
       if (selectedEntity?.id === nodeId) {
         setSelectedEntity(null);
@@ -294,6 +293,7 @@ function App() {
       // Also add to selection history on double-click expand
       const entity = getEntityById(entities, nodeId);
       if (entity) {
+        setSelectedEntity(entity);
         addToSelectionHistory(entity);
         setSidebarOpen(true);
         setRightSidebarCollapsed(false);
@@ -322,22 +322,12 @@ function App() {
         const existingIds = new Set(entities.map((e) => e.id));
         const trulyNew = newE.filter((e) => !existingIds.has(e.id));
 
-        let keptNew: typeof trulyNew;
-        if (trulyNew.length <= MAX_EXPANSION_NODES) {
-          keptNew = trulyNew;
-        } else {
-          const scoreMap = new Map<string, number>();
-          for (const edge of newEd) {
-            const s = edge.score ?? 0;
-            for (const id of [edge.source, edge.target]) {
-              scoreMap.set(id, Math.max(scoreMap.get(id) ?? 0, s));
-            }
-          }
-          trulyNew.sort(
-            (a, b) => (scoreMap.get(b.id) ?? 0) - (scoreMap.get(a.id) ?? 0)
-          );
-          keptNew = trulyNew.slice(0, MAX_EXPANSION_NODES);
-        }
+        const keptNew = rankCandidates({
+          candidates: trulyNew,
+          edges: newEd,
+          existingEntities: entities,
+          maxResults: MAX_EXPANSION_NODES,
+        });
 
         const alreadyExisting = newE.filter((e) => existingIds.has(e.id));
         const finalEntities = [...alreadyExisting, ...keptNew];
@@ -363,6 +353,7 @@ function App() {
 
         setEntities((prev) => mergeEntities(prev, finalEntities));
         setEdges((prev) => mergeEdges(prev, finalEdges));
+        setTimeout(() => setFitRequest((n) => n + 1), 600);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
         setExpandError(
@@ -460,7 +451,29 @@ function App() {
     [edges]
   );
 
-  const handleFit = useCallback(() => setGraphKey((k) => k + 1), []);
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const body = leftPaneBodyRef.current;
+    if (!body) return;
+    const PATH_MIN_PX = 60;
+    const OVERVIEW_MIN_PX = 120;
+    const HANDLE_PX = 6;
+    const onMouseMove = (ev: MouseEvent) => {
+      const rect = body.getBoundingClientRect();
+      const minPx = PATH_MIN_PX;
+      const maxPx = rect.height - OVERVIEW_MIN_PX - HANDLE_PX;
+      const clampedPx = Math.max(minPx, Math.min(maxPx, ev.clientY - rect.top));
+      setOverviewRatio(clampedPx / rect.height);
+    };
+    const onMouseUp = () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }, []);
+
+  const handleFit = useCallback(() => setFitRequest((n) => n + 1), []);
 
   const handleResetExploration = useCallback(() => {
     const snapshot = initialGraphStateRef.current;
@@ -470,14 +483,32 @@ function App() {
     setEntities(snapshot.entities);
     setEdges(snapshot.edges);
     setCenterNodeId(snapshot.centerNodeId);
-    setExpandedNodes(snapshot.centerNodeId ? [snapshot.centerNodeId] : []);
     setExpansionSnapshots(new Map());
-    setSelectionHistory([]);
     setSelectedEdge(null);
     setOverviewHistory([]);
-    const center = snapshot.entities.find((e) => e.id === snapshot.centerNodeId);
-    if (center) { setSelectedEntity(center); addToSelectionHistory(center); }
-    else { setSelectedEntity(null); }
+
+    const savedPathIds = snapshot.pathNodeIds ?? [];
+    setPathNodeIds(savedPathIds);
+
+    if (savedPathIds.length > 0) {
+      // Restore path mode: expand all except last, rebuild path selection history
+      setExpandedNodes(savedPathIds.slice(0, -1));
+      const pathOrderedEntities = savedPathIds
+        .map((id) => snapshot.entities.find((e) => e.id === id))
+        .filter((ent): ent is Entity => !!ent);
+      setSelectionHistory([...pathOrderedEntities].reverse());
+      const startEntity = snapshot.entities.find((e) => e.id === savedPathIds[0]);
+      if (startEntity) { setSelectedEntity(startEntity); }
+      else { setSelectedEntity(null); }
+    } else {
+      // Restore search mode
+      setExpandedNodes(snapshot.centerNodeId ? [snapshot.centerNodeId] : []);
+      setSelectionHistory([]);
+      const center = snapshot.entities.find((e) => e.id === snapshot.centerNodeId);
+      if (center) { setSelectedEntity(center); addToSelectionHistory(center); }
+      else { setSelectedEntity(null); }
+    }
+
     setGraphKey((k) => k + 1);
   }, [addToSelectionHistory]);
 
@@ -656,6 +687,19 @@ function App() {
       cooccurrence_score: edge.cooccurrenceScore,
     }));
 
+    // Build chronological path: selectionHistory is newest-first, so reverse it.
+    // selectionHistory only tracks expanded nodes; append selectedEntity at the tail
+    // if it was only single-clicked (not yet in history).
+    const path = [...selectionHistory].reverse().map((e) => ({
+      id: e.id,
+      name: e.name,
+      type: e.type as string,
+    }));
+    const pathTail = path[path.length - 1];
+    if (selectedEntity && (!pathTail || pathTail.id !== selectedEntity.id)) {
+      path.push({ id: selectedEntity.id, name: selectedEntity.name, type: selectedEntity.type as string });
+    }
+
     return {
       selection_type: currentSelectionType,
       edge_id: currentSelectionType === "edge" ? selectedEdge?.id : undefined,
@@ -672,6 +716,7 @@ function App() {
         selection_type: h.selectionType,
         summary: h.summary,
       })),
+      path,
     };
   }, [
     currentSelectionType,
@@ -679,8 +724,9 @@ function App() {
     edges,
     entities,
     selectedEdge?.id,
-    selectedEntity?.id,
+    selectedEntity,
     overviewHistory,
+    selectionHistory,
   ]);
 
   const filteredEntities =
@@ -699,7 +745,7 @@ function App() {
   return (
     <div className="app-wrapper">
       <nav className="top-nav">
-        <h1 className="top-nav-title">BioRender</h1>
+        <a href="/" className="top-nav-logo">BioRender</a>
       </nav>
       <div className="app-layout">
       <div className="blob-bg" aria-hidden="true">
@@ -708,58 +754,63 @@ function App() {
         <div className="blob blob-3" />
         <div className="blob blob-4" />
       </div>
-      {/* Left Pane - Exploration Path */}
+      {/* Left Pane - Exploration Path + AI Overview */}
       <aside className={`pane pane-left ${sidebarOpen ? "" : "collapsed"}`}>
         <div className="pane-header">
-          <h2 className="path-history-title">Exploration Path</h2>
+          <h2 className="path-history-title">Knowledge Exploration Path</h2>
         </div>
-        <SearchBar entities={entities} onSelect={handleSearchSelect} />
-        <div className="path-history-list">
-          <PathBreadcrumb
-            selectionHistory={selectionHistory}
-            edges={edges}
-            onPrune={handlePruneHistory}
-            onClear={() => {
-              setSelectionHistory([]);
-              setExpansionSnapshots(new Map());
-            }}
-          />
+        <div className="left-pane-body" ref={leftPaneBodyRef}>
+          <div
+            className="path-history-list"
+            style={{ flex: `0 0 ${graphLoaded ? overviewRatio * 100 : 100}%` }}
+          >
+            <PathBreadcrumb
+              selectionHistory={selectionHistory}
+              edges={edges}
+              onPrune={handlePruneHistory}
+              onClear={() => {
+                setSelectionHistory([]);
+                setExpansionSnapshots(new Map());
+              }}
+            />
+          </div>
+          {graphLoaded && (
+            <>
+              <div className="pane-resize-handle" onMouseDown={handleDividerMouseDown} />
+              <div className="left-pane-overview">
+                <AIOverviewCard
+                  key={overviewRequest ? `${overviewRequest.selection_type}:${overviewRequest.edge_id ?? overviewRequest.node_id ?? "none"}` : "overview-none"}
+                  request={overviewRequest}
+                  onComplete={(item) => {
+                    setOverviewHistory((prev) => {
+                      const deduped = prev.filter(
+                        (existing) => existing.selectionKey !== item.selectionKey
+                      );
+                      return [...deduped, item].slice(-3);
+                    });
+                  }}
+                />
+              </div>
+            </>
+          )}
         </div>
       </aside>
 
       {/* Centre Pane */}
       <main className="pane pane-centre">
-        {/* Top bar: hamburger + hints + filter */}
-        <div className="centre-topbar">
-          <button
-            className="sidebar-toggle"
-            onClick={() => setSidebarOpen((v) => !v)}
-            aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              {sidebarOpen ? (
-                <>
-                  <path d="M15 18l-6-6 6-6" />
-                </>
-              ) : (
-                <>
-                  <line x1="3" y1="6" x2="21" y2="6" />
-                  <line x1="3" y1="12" x2="21" y2="12" />
-                  <line x1="3" y1="18" x2="21" y2="18" />
-                </>
-              )}
-            </svg>
-          </button>
+        {/* Floating left-edge tab for left panel toggle */}
+        <button
+          className={`panel-edge-tab panel-edge-tab-left${sidebarOpen ? " panel-open" : ""}`}
+          onClick={() => setSidebarOpen((v) => !v)}
+          aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            {sidebarOpen ? <path d="M15 18l-6-6 6-6" /> : <path d="M9 18l6-6-6-6" />}
+          </svg>
+        </button>
 
+        {/* Top bar: toolbar + filter */}
+        <div className="centre-topbar">
           <Toolbar onFit={handleFit} disabled={!graphLoaded} canReset={graphLoaded && expandedNodes.length > 1} onReset={handleResetExploration} canShare={graphLoaded} onShare={handleSaveSnapshot} isSaving={isSavingSnapshot} />
 
           {graphLoaded && (
@@ -811,13 +862,6 @@ function App() {
           </div>
         )}
 
-        {/* Empty state */}
-        {!graphLoaded && !isQuerying && !queryError && !backendMessage && (
-          <div className="empty-state">
-            <p>Enter a gene, disease, drug, pathway, or protein to explore its knowledge graph.</p>
-          </div>
-        )}
-
         <GraphCanvas
           key={`${graphKey}-${entityFilter === "all" ? "all" : [...entityFilter].sort().join(",")}`}
           entities={filteredEntities}
@@ -834,6 +878,7 @@ function App() {
           onNodeExpand={handleNodeExpand}
           onEdgeSelect={handleEdgeSelect}
           disabledNodeIds={disabledNodeIds}
+          fitRequest={fitRequest}
           pathNodeIds={pathNodeIds}
           onPositionsUpdate={handlePositionsUpdate}
         />
@@ -841,14 +886,38 @@ function App() {
         {/* Graph legend (bottom-left) */}
         {graphLoaded && <GraphLegend />}
 
+        {/* Floating right-edge tab for right panel toggle */}
+        {(selectedEdge || selectedEntity) && (
+          <button
+            className={`panel-edge-tab panel-edge-tab-right${!rightSidebarCollapsed ? " panel-open" : ""}`}
+            onClick={() => setRightSidebarCollapsed((v) => !v)}
+            aria-label={rightSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              {rightSidebarCollapsed ? <path d="M15 18l-6-6 6-6" /> : <path d="M9 18l6-6-6-6" />}
+            </svg>
+          </button>
+        )}
+
         {/* Chat input */}
-        {chatExpanded ? (
-          <ChatInput
-            onSubmit={handleQuery}
-            isLoading={isQuerying}
-            onCollapse={() => setChatExpanded(false)}
-          />
-        ) : (
+        {chatExpanded && (!isQuerying || graphLoaded) && (
+          <>
+            {graphLoaded && (
+              <div
+                className="chat-spotlight-backdrop"
+                onClick={() => setChatExpanded(false)}
+              />
+            )}
+            <ChatInput
+              onSubmit={handleQuery}
+              isLoading={isQuerying}
+              onCollapse={() => setChatExpanded(false)}
+              showCollapse={graphLoaded}
+              isLanding={!graphLoaded}
+            />
+          </>
+        )}
+        {!chatExpanded && (
           <button
             className="chat-expand-fab"
             onClick={() => setChatExpanded(true)}
@@ -864,44 +933,19 @@ function App() {
 
       {/* Right Pane */}
       {(selectedEdge || selectedEntity || selectionHistory.length >= 2) && (
-        <aside
-          className={`pane pane-right ${rightSidebarCollapsed ? "collapsed" : ""}`}
-        >
+        <aside className={`pane pane-right ${rightSidebarCollapsed ? "collapsed" : ""}`}>
           {rightSidebarCollapsed ? (
             <button
               className="right-pane-expand"
               onClick={() => setRightSidebarCollapsed(false)}
               aria-label="Expand sidebar"
             >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M15 18l-6-6 6-6" />
               </svg>
             </button>
           ) : (
             <div className="right-pane-inner">
-              {/* Stacked top: AI Overview */}
-              <div className={`pane-top-section${activeRightSection === 'deepthink' ? ' section-collapsed' : ''}`}>
-                <AIOverviewCard
-                  key={overviewRequest ? `${overviewRequest.selection_type}:${overviewRequest.edge_id ?? overviewRequest.node_id ?? "none"}` : "overview-none"}
-                  request={overviewRequest}
-                  onComplete={(item) => {
-                    setOverviewHistory((prev) => {
-                      const deduped = prev.filter(
-                        (existing) => existing.selectionKey !== item.selectionKey
-                      );
-                      return [...deduped, item].slice(-3);
-                    });
-                  }}
-                />
-              </div>
-
               {/* Scrollable middle: entity / edge panels */}
               <div className={`right-pane-middle${activeRightSection === 'deepthink' ? ' section-collapsed' : ''}`}>
                 {selectedEdge ? (
@@ -910,19 +954,17 @@ function App() {
                     evidence={evidence}
                     entities={entities}
                     onClose={() => setSelectedEdge(null)}
-                    onCollapse={() => setRightSidebarCollapsed(true)}
                   />
                 ) : selectedEntity ? (
                   <EntityAdvancedSearchPanel
                     entity={selectedEntity}
                     selectionHistory={selectionHistory}
                     edges={edges}
-                    onCollapse={() => setRightSidebarCollapsed(true)}
                   />
                 ) : null}
               </div>
 
-              {/* Pinned bottom: Unpack This chatbot */}
+              {/* Pinned bottom: Deep Think */}
               {selectionHistory.length >= 1 && (
                 <DeepThinkPanel
                   path={deepThinkPath}

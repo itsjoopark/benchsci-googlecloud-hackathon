@@ -89,6 +89,7 @@ export interface OverviewStreamRequestPayload {
   entities: OverviewEntityPayload[];
   edges: OverviewEdgePayload[];
   history: OverviewHistoryPayload[];
+  path?: { id: string; name: string; type: string }[];
 }
 
 export interface OverviewCitation {

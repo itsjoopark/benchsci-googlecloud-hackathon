@@ -16,6 +16,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
+  position: relative;
 }
 
 .chat-textarea {
@@ -40,25 +41,47 @@
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  justify-content: flex-end;
 }
 
 .chat-collapse-btn {
+  position: absolute;
+  top: 10px;
+  left: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
-  margin-right: auto;
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
   color: var(--color-text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
 
 .chat-collapse-btn:hover {
   background: var(--color-bg-elevated);
   color: var(--color-text-primary);
+}
+
+.chat-input-wrapper--landing {
+  width: min(720px, calc(100% - 64px));
+  top: 50%;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+}
+
+.chat-input-wrapper--landing .chat-input-container {
+  padding: var(--space-lg) var(--space-xl);
+}
+
+.chat-input-wrapper--landing .chat-textarea {
+  font-size: 17px;
+  min-height: 32px;
 }
 
 .chat-submit-btn {

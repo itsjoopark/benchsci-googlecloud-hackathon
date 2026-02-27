@@ -23,6 +23,7 @@ interface Props {
   onNodeExpand: (nodeId: string) => void;
   onEdgeSelect: (edgeId: string) => void;
   disabledNodeIds: Set<string>;
+  fitRequest: number;
   pathNodeIds?: string[];
   onPositionsUpdate?: (positions: Map<string, { x: number; y: number }>) => void;
 }
@@ -49,9 +50,8 @@ interface SimLink extends SimulationLinkDatum<SimNode> {
   glowMesh?: THREE.Mesh;
 }
 
-const EDGE_COLOR = 0xbdc3c7;
+const EDGE_COLOR = 0x8a9198;
 const EDGE_GLOW_WIDTH = 4;
-const EDGE_GLOW_OPACITY = 0.25;
 const NODE_RADIUS = 14;
 const BG_COLOR = 0xf0eee9;
 const BORDER_OUTER_OFFSET = 2.5;
@@ -160,11 +160,12 @@ export default function GraphCanvas({
   onNodeExpand,
   onEdgeSelect,
   disabledNodeIds,
+  fitRequest,
   pathNodeIds,
   onPositionsUpdate,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const tooltipRef = useRef<HTMLDivElement>(null);
+  const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const hoveredNodeRef = useRef<THREE.Mesh | null>(null);
   const selectedEntityIdRef = useRef<string | null>(selectedEntityId);
@@ -200,6 +201,26 @@ export default function GraphCanvas({
     const width = container.clientWidth;
     const height = container.clientHeight;
 
+    // Edge hover tooltip (raw DOM, no React ref needed)
+    const tooltip = document.createElement("div");
+    Object.assign(tooltip.style, {
+      display: "none",
+      position: "absolute",
+      pointerEvents: "none",
+      background: "rgba(255,255,255,0.92)",
+      color: "#888",
+      fontSize: "11px",
+      fontWeight: "400",
+      padding: "3px 8px",
+      borderRadius: "4px",
+      border: "1px solid #e0e0e0",
+      whiteSpace: "nowrap",
+      boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+      zIndex: "10",
+    });
+    container.style.position = "relative";
+    container.appendChild(tooltip);
+
     // Scene setup
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(BG_COLOR);
@@ -208,6 +229,7 @@ export default function GraphCanvas({
       -width / 2, width / 2, height / 2, -height / 2, 0.1, 1000
     );
     camera.position.z = 100;
+    cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(width, height);
@@ -334,7 +356,7 @@ export default function GraphCanvas({
         color: EDGE_COLOR,
         linewidth: 1,
         transparent: true,
-        opacity: 0.6,
+        opacity: 0.82,
       });
       const geometry = new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(0, 0, 0),
@@ -346,17 +368,16 @@ export default function GraphCanvas({
       link.line = line;
 
       // Glow mesh for edge hover/selection
-      const glowColor = link.color ? new THREE.Color(link.color) : new THREE.Color(0x7FB3E0);
       const glowGeo = new THREE.PlaneGeometry(1, 1);
       const glowMat = new THREE.MeshBasicMaterial({
-        color: glowColor,
+        color: EDGE_COLOR,
         transparent: true,
-        opacity: EDGE_GLOW_OPACITY,
+        opacity: 0.45,
         depthWrite: false,
       });
       const glowMesh = new THREE.Mesh(glowGeo, glowMat);
       glowMesh.position.z = 0.1;
-      glowMesh.visible = false;
+      glowMesh.visible = true;
       scene.add(glowMesh);
       link.glowMesh = glowMesh;
 
@@ -412,8 +433,8 @@ export default function GraphCanvas({
 
       // White ring for selected-node highlight (hidden by default)
       const selRingGeo = createBorderRing(
-        NODE_RADIUS + BORDER_OUTER_OFFSET + 0.5,
-        NODE_RADIUS + BORDER_OUTER_OFFSET + 3.5
+        NODE_RADIUS - 1.5,
+        NODE_RADIUS + 2.5
       );
       const selRingMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 });
       const selRing = new THREE.Mesh(selRingGeo, selRingMat);
@@ -487,9 +508,26 @@ export default function GraphCanvas({
         const s = link.source as SimNode;
         const t = link.target as SimNode;
         if (link.line && s.x !== undefined && s.y !== undefined && t.x !== undefined && t.y !== undefined) {
+          const dx = t.x - s.x;
+          const dy = t.y - s.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          // Offset endpoints so edges stop at circle perimeter instead of center
+          const rSource = NODE_RADIUS * s.size;
+          const rTarget = NODE_RADIUS * t.size;
+          let sx = s.x, sy = s.y, tx = t.x, ty = t.y;
+          if (dist > rSource + rTarget) {
+            const ux = dx / dist;
+            const uy = dy / dist;
+            sx += ux * rSource;
+            sy += uy * rSource;
+            tx -= ux * rTarget;
+            ty -= uy * rTarget;
+          }
+
           const positions = link.line.geometry.attributes.position as THREE.BufferAttribute;
-          positions.setXY(0, s.x, s.y);
-          positions.setXY(1, t.x, t.y);
+          positions.setXY(0, sx, sy);
+          positions.setXY(1, tx, ty);
           positions.needsUpdate = true;
 
           const isSelected = link.id === selectedEdgeIdRef.current;
@@ -508,28 +546,24 @@ export default function GraphCanvas({
             mat.color.setHex(0x000000);
             mat.opacity = 1.0 * edgeEased;
           } else if (isExpansionPath) {
-            mat.color.setHex(0x000000);
-            mat.opacity = 1.0 * edgeEased;
+            mat.opacity = 0; // glow mesh replaces thin line
           } else if (isPathMode) {
             // Path mode: dim non-path edges
             mat.color.setHex(EDGE_COLOR);
             mat.opacity = 0.15 * edgeEased;
           } else if (eitherDisabled) {
-            mat.color.setHex(EDGE_COLOR);
-            mat.opacity = 0.3 * edgeEased;
+            mat.color.setHex(0x5a6570);
+            mat.opacity = 0.35 * edgeEased;
           } else {
-            mat.color.setHex(EDGE_COLOR);
-            mat.opacity = 0.6 * edgeEased;
+            mat.color.setHex(0x5a6570);
+            mat.opacity = 0.75 * edgeEased;
           }
 
-          const dx = t.x - s.x;
-          const dy = t.y - s.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-
           if (link.glowMesh) {
-            link.glowMesh.position.set((s.x + t.x) / 2, (s.y + t.y) / 2, 0.1);
+            const trimmedDist = Math.sqrt((tx - sx) ** 2 + (ty - sy) ** 2);
+            link.glowMesh.position.set((sx + tx) / 2, (sy + ty) / 2, 0.1);
             link.glowMesh.rotation.z = Math.atan2(dy, dx);
-            link.glowMesh.scale.set(dist, EDGE_GLOW_WIDTH, 1);
+            link.glowMesh.scale.set(trimmedDist, EDGE_GLOW_WIDTH, 1);
           }
         }
       });
@@ -563,7 +597,7 @@ export default function GraphCanvas({
 
     // Interaction state
     const raycaster = new THREE.Raycaster();
-    raycaster.params.Line = { threshold: 5 };
+    raycaster.params.Line = { threshold: 12 };
     const mouse = new THREE.Vector2();
     let hoveredNode: THREE.Mesh | null = null;
     let hoveredEdgeLine: THREE.Line | null = null;
@@ -582,7 +616,6 @@ export default function GraphCanvas({
       screenToWorld(event.clientX, event.clientY);
       raycaster.setFromCamera(mouse, camera);
       const nodeMeshes = simNodes
-        .filter((n) => !disabledNodeIdsRef.current.has(n.id))
         .map((n) => n.mesh)
         .filter(Boolean) as THREE.Mesh[];
       const intersects = raycaster.intersectObjects(nodeMeshes, false);
@@ -635,7 +668,7 @@ export default function GraphCanvas({
                 mat.opacity = 1.0;
               } else {
                 mat.color.setHex(EDGE_COLOR);
-                mat.opacity = 0.6;
+                mat.opacity = 0.82;
               }
             }
           }
@@ -649,19 +682,19 @@ export default function GraphCanvas({
           hoveredEdgeLine = edge;
           // Show tooltip
           const label = edge.userData.edgeLabel as string;
-          if (label.length > 0 && tooltipRef.current) {
+          if (label.length > 0 && tooltip) {
             const rect = container.getBoundingClientRect();
-            tooltipRef.current.textContent = label;
-            tooltipRef.current.style.left = `${e.clientX - rect.left + 12}px`;
-            tooltipRef.current.style.top = `${e.clientY - rect.top - 8}px`;
-            tooltipRef.current.style.display = "block";
+            tooltip.textContent = label;
+            tooltip.style.left = `${e.clientX - rect.left + 12}px`;
+            tooltip.style.top = `${e.clientY - rect.top - 8}px`;
+            tooltip.style.display = "block";
           }
         } else if (edge && hoveredEdgeLine === edge) {
           // Same edge — just update tooltip position
-          if (tooltipRef.current && tooltipRef.current.style.display === "block") {
+          if (tooltip && tooltip.style.display === "block") {
             const rect = container.getBoundingClientRect();
-            tooltipRef.current.style.left = `${e.clientX - rect.left + 12}px`;
-            tooltipRef.current.style.top = `${e.clientY - rect.top - 8}px`;
+            tooltip.style.left = `${e.clientX - rect.left + 12}px`;
+            tooltip.style.top = `${e.clientY - rect.top - 8}px`;
           }
         } else if (!edge && hoveredEdgeLine) {
           const hovEdgeId = hoveredEdgeLine.userData.edgeId as string;
@@ -673,11 +706,11 @@ export default function GraphCanvas({
               mat.opacity = 1.0;
             } else {
               mat.color.setHex(EDGE_COLOR);
-              mat.opacity = 0.6;
+              mat.opacity = 0.82;
             }
           }
           hoveredEdgeLine = null;
-          if (tooltipRef.current) tooltipRef.current.style.display = "none";
+          if (tooltip) tooltip.style.display = "none";
         }
         container.style.cursor = edge ? "pointer" : "default";
       }
@@ -699,11 +732,11 @@ export default function GraphCanvas({
             mat.opacity = 1.0;
           } else {
             mat.color.setHex(EDGE_COLOR);
-            mat.opacity = 0.6;
+            mat.opacity = 0.82;
           }
         }
         hoveredEdgeLine = null;
-        if (tooltipRef.current) tooltipRef.current.style.display = "none";
+        if (tooltip) tooltip.style.display = "none";
       }
     };
 
@@ -810,7 +843,7 @@ export default function GraphCanvas({
           // Fully animated: apply selection + hover scale every frame
           const isSelected = node.id === selectedEntityIdRef.current;
           const isHovered = node.mesh === hoveredNodeRef.current;
-          const scaleMult = isSelected ? 1.25 : (isHovered ? 1.15 : 1.0);
+          const scaleMult = isSelected ? 1.5 : (isHovered ? 1.15 : 1.0);
           node.mesh?.scale.set(node.size * scaleMult, node.size * scaleMult, 1);
           node.nodeSprite?.scale.set(
             NODE_SPRITE_WORLD_SIZE * node.size * scaleMult,
@@ -825,15 +858,34 @@ export default function GraphCanvas({
 
       simLinks.forEach((link) => {
         if (link.glowMesh) {
+          const s = link.source as SimNode;
+          const t = link.target as SimNode;
           const isHovered = hoveredEdgeLine !== null &&
             hoveredEdgeLine.userData.edgeId === link.id;
           const isSelected = link.id === selectedEdgeIdRef.current;
           const isExpansionPath = expansionEdgeIds.has(link.id);
+          const eitherDisabled = disabledNodeIdsRef.current.has(s.id) || disabledNodeIdsRef.current.has(t.id);
+          const glowMat = link.glowMesh.material as THREE.MeshBasicMaterial;
           const isOnPath = isPathMode && pathEdgeIds.has(link.id);
-          link.glowMesh.visible = isHovered || isSelected || isExpansionPath || isOnPath;
-          if ((isExpansionPath || isOnPath) && !isSelected && !isHovered) {
-            (link.glowMesh.material as THREE.MeshBasicMaterial).color.setHex(0x000000);
-            (link.glowMesh.material as THREE.MeshBasicMaterial).opacity = 0.3;
+
+          if (isSelected) {
+            link.glowMesh.visible = true;
+            if (link.color) { glowMat.color.set(link.color); } else { glowMat.color.setHex(0x4A90D9); }
+            glowMat.opacity = eitherDisabled ? 0.5 : 1.0;
+          } else if (isHovered) {
+            link.glowMesh.visible = true;
+            glowMat.color.setHex(0x7FB3E0);
+            glowMat.opacity = eitherDisabled ? 0.375 : 0.75;
+          } else if (isExpansionPath) {
+            link.glowMesh.visible = true;
+            glowMat.color.setHex(0x333333);
+            glowMat.opacity = eitherDisabled ? 0.4 : 0.85;
+          } else if (isOnPath) {
+            link.glowMesh.visible = true;
+            glowMat.color.setHex(0x000000);
+            glowMat.opacity = 0.3;
+          } else {
+            link.glowMesh.visible = false;
           }
         }
       });
@@ -875,6 +927,9 @@ export default function GraphCanvas({
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
+      if (container.contains(tooltip)) {
+        container.removeChild(tooltip);
+      }
     };
 
     return () => {
@@ -884,31 +939,27 @@ export default function GraphCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entities, edges]);
 
+  useEffect(() => {
+    const camera = cameraRef.current;
+    const container = containerRef.current;
+    if (!camera || !container || nodePositionsRef.current.size === 0) return;
+    const positions = [...nodePositionsRef.current.values()];
+    const xs = positions.map(p => p.x);
+    const ys = positions.map(p => p.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    camera.position.x = (minX + maxX) / 2;
+    camera.position.y = (minY + maxY) / 2;
+    const padX = (maxX - minX) / 2 + 40;
+    const padY = (maxY - minY) / 2 + 40;
+    const W = container.clientWidth, H = container.clientHeight;
+    camera.zoom = Math.min(W / (2 * padX), H / (2 * padY), 5.0);
+    camera.updateProjectionMatrix();
+  }, [fitRequest]);
+
   if (entities.length === 0) {
     return <div className="graph-empty" />;
   }
 
-  return (
-    <div style={{ position: "relative", width: "100%", height: "100%" }}>
-      <div ref={containerRef} className="graph-container" />
-      <div
-        ref={tooltipRef}
-        style={{
-          display: "none",
-          position: "absolute",
-          pointerEvents: "none",
-          background: "rgba(255,255,255,0.92)",
-          color: "#888",
-          fontSize: "11px",
-          fontWeight: 400,
-          padding: "3px 8px",
-          borderRadius: "4px",
-          border: "1px solid #e0e0e0",
-          whiteSpace: "nowrap",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
-          zIndex: 10,
-        }}
-      />
-    </div>
-  );
+  return <div ref={containerRef} className="graph-container" />;
 }

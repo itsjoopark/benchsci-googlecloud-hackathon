@@ -25,8 +25,15 @@ def main() -> int:
     parser.add_argument("--resume-run-id", default=None, help="Resume a previous run id")
     parser.add_argument("--dry-run", action="store_true", help="Build metadata only, no embedding/index")
     parser.add_argument("--skip-index", action="store_true", help="Skip index creation after datapoints upload")
+    parser.add_argument("--recent-first", dest="recent_first", action="store_true", help="Prioritize BRCA1 + most recent docs first")
+    parser.add_argument("--no-recent-first", dest="recent_first", action="store_false", help="Disable recency-first priority head")
+    parser.add_argument("--priority-seed-docs", type=int, default=50000, help="Number of recency-prioritized docs to pre-seed after BRCA1 docs")
+    parser.add_argument("--priority-term", default="brca1", help="Mention term to force to the front (case-insensitive)")
+    parser.add_argument("--year-from", type=int, default=None, help="Inclusive lower publication year bound")
+    parser.add_argument("--year-to", type=int, default=None, help="Inclusive upper publication year bound")
     parser.add_argument("--prefix", default=None, help="Optional GCS prefix under bucket")
     parser.set_defaults(no_type_filter=True)
+    parser.set_defaults(recent_first=True)
     args = parser.parse_args()
 
     builder = GCSBatchIndexBuilder(bucket_name=args.bucket, prefix=args.prefix, run_id=args.resume_run_id)
@@ -43,6 +50,11 @@ def main() -> int:
         resume_run_id=args.resume_run_id,
         dry_run=args.dry_run,
         skip_index=args.skip_index,
+        recent_first=args.recent_first,
+        priority_seed_docs=args.priority_seed_docs,
+        priority_term=args.priority_term,
+        year_from=args.year_from,
+        year_to=args.year_to,
     )
     print(json.dumps(result.__dict__, indent=2))
     return 0

@@ -5,12 +5,16 @@ interface Props {
   onSubmit: (query: string) => void;
   isLoading: boolean;
   onCollapse: () => void;
+  showCollapse?: boolean;
+  isLanding?: boolean;
 }
 
 export default function ChatInput({
   onSubmit,
   isLoading,
   onCollapse,
+  showCollapse = false,
+  isLanding = false,
 }: Props) {
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -30,8 +34,18 @@ export default function ChatInput({
   };
 
   return (
-    <div className="chat-input-wrapper">
+    <div className={`chat-input-wrapper${isLanding ? " chat-input-wrapper--landing" : ""}`}>
       <div className="chat-input-container">
+        {showCollapse && (
+          <button
+            className="chat-collapse-btn"
+            onClick={onCollapse}
+            title="Minimize search bar"
+            aria-label="Minimize search bar"
+          >
+            −
+          </button>
+        )}
         <textarea
           ref={inputRef}
           className="chat-textarea"
@@ -43,16 +57,6 @@ export default function ChatInput({
           disabled={isLoading}
         />
         <div className="chat-actions">
-          <button
-            className="chat-collapse-btn"
-            onClick={onCollapse}
-            title="Minimize search bar"
-            aria-label="Minimize search bar"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-          </button>
           <button
             className="chat-submit-btn"
             onClick={handleSubmit}

@@ -150,6 +150,11 @@ class GCSBatchIndexBuilder:
         enable_entity_type_filter: bool,
         allowed_entity_types: list[str],
         start_after_doc_id: str,
+        recent_first: bool,
+        priority_seed_docs: int,
+        priority_term: str,
+        year_from: int | None,
+        year_to: int | None,
     ) -> Iterable[EvidenceDoc]:
         bq = BQStore()
         if mode == "pilot":
@@ -160,14 +165,38 @@ class GCSBatchIndexBuilder:
             return
 
         yielded = 0
+        priority_seen: set[str] = set()
+        if recent_first and not start_after_doc_id:
+            seed_docs = bq.fetch_priority_seed_docs(
+                min_linked_entities=min_linked_entities,
+                enable_entity_type_filter=enable_entity_type_filter,
+                allowed_entity_types=allowed_entity_types,
+                priority_term=priority_term,
+                seed_limit=priority_seed_docs,
+                year_from=year_from,
+                year_to=year_to,
+            )
+            for d in seed_docs:
+                if limit > 0 and yielded >= limit:
+                    return
+                yielded += 1
+                priority_seen.add(d.doc_id)
+                yield d
+
         for d in bq.iter_filtered_docs(
             min_linked_entities=min_linked_entities,
             enable_entity_type_filter=enable_entity_type_filter,
             allowed_entity_types=allowed_entity_types,
             start_after_doc_id=start_after_doc_id,
+            fetch_batch_size=max(1000, min(20000, SETTINGS.pilot_doc_limit)),
+            max_docs=(limit - yielded) if limit > 0 else 0,
+            year_from=year_from,
+            year_to=year_to,
         ):
+            if d.doc_id in priority_seen:
+                continue
             if limit > 0 and yielded >= limit:
-                break
+                return
             yielded += 1
             yield d
 
@@ -178,6 +207,8 @@ class GCSBatchIndexBuilder:
         min_linked_entities: int,
         enable_entity_type_filter: bool,
         allowed_entity_types: list[str],
+        year_from: int | None,
+        year_to: int | None,
     ) -> dict:
         bq = BQStore()
         if mode == "full":
@@ -185,6 +216,8 @@ class GCSBatchIndexBuilder:
                 min_linked_entities=min_linked_entities,
                 enable_entity_type_filter=enable_entity_type_filter,
                 allowed_entity_types=allowed_entity_types,
+                year_from=year_from,
+                year_to=year_to,
             )
             if limit > 0:
                 stats["docs_total_capped"] = limit
@@ -213,6 +246,11 @@ class GCSBatchIndexBuilder:
         resume_run_id: str | None = None,
         dry_run: bool = False,
         skip_index: bool = False,
+        recent_first: bool = SETTINGS.recent_first,
+        priority_seed_docs: int = SETTINGS.priority_seed_docs,
+        priority_term: str = SETTINGS.priority_term,
+        year_from: int | None = None,
+        year_to: int | None = None,
     ) -> BuildGCSResult:
         if mode not in {"pilot", "full"}:
             raise ValueError("mode must be 'pilot' or 'full'")
@@ -248,6 +286,8 @@ class GCSBatchIndexBuilder:
             min_linked_entities=min_linked_entities,
             enable_entity_type_filter=enable_entity_type_filter,
             allowed_entity_types=allowed_entity_types,
+            year_from=year_from,
+            year_to=year_to,
         )
         manifest.update(
             {
@@ -261,6 +301,11 @@ class GCSBatchIndexBuilder:
                 "batch_docs": batch_docs,
                 "workers": workers,
                 "max_retries": max_retries,
+                "recent_first": recent_first,
+                "priority_seed_docs": priority_seed_docs,
+                "priority_term": priority_term,
+                "year_from": year_from,
+                "year_to": year_to,
             }
         )
         manifest_uri = self._upload_json(manifest, f"{prefix}/manifest_stats.json")
@@ -338,7 +383,7 @@ class GCSBatchIndexBuilder:
             )
 
             with tempfile.TemporaryDirectory() as td:
-                local_file = Path(td) / f"part-{idx:05d}.jsonl"
+                local_file = Path(td) / f"part-{idx:05d}.json"
                 with local_file.open("w", encoding="utf-8") as f:
                     for r in ok_rows:
                         rec = {
@@ -356,7 +401,7 @@ class GCSBatchIndexBuilder:
                             },
                         }
                         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-                shard_uri = self._upload_file(local_file, f"{prefix}/shards/part-{idx:05d}.jsonl", content_type="application/json")
+                shard_uri = self._upload_file(local_file, f"{prefix}/shards/part-{idx:05d}.json", content_type="application/json")
 
             for fr in failed_rows:
                 failed_chunk_rows.append(
@@ -381,6 +426,11 @@ class GCSBatchIndexBuilder:
             enable_entity_type_filter=enable_entity_type_filter,
             allowed_entity_types=allowed_entity_types,
             start_after_doc_id=start_after_doc_id,
+            recent_first=recent_first,
+            priority_seed_docs=priority_seed_docs,
+            priority_term=priority_term,
+            year_from=year_from,
+            year_to=year_to,
         ):
             docs_buffer.append(d)
             last_doc_id = d.doc_id

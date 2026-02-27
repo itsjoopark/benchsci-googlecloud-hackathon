@@ -6,7 +6,6 @@ interface Props {
   entity: Entity;
   selectionHistory: Entity[];
   edges: GraphEdge[];
-  onCollapse: () => void;
 }
 
 function getOverviewSectionTitle(entityType: string): string {
@@ -63,14 +62,24 @@ function findConnectingEdge(
   );
 }
 
+function groupByDb(items: EvidenceItem[]): [string, EvidenceItem[]][] {
+  const map = new Map<string, EvidenceItem[]>();
+  for (const item of items) {
+    const key = item.source ?? "Other";
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(item);
+  }
+  return Array.from(map.entries());
+}
+
 export default function EntityAdvancedSearchPanel({
   entity,
   selectionHistory,
   edges,
-  onCollapse,
 }: Props) {
   const research = getEntityResearch(entity.id);
   const sources = collectSourcesFromEdges(entity.id, edges);
+  const groupedSources = groupByDb(sources);
   const overviewTitle = getOverviewSectionTitle(entity.type);
 
   // Find all history nodes (excluding the current entity) that have a connecting edge
@@ -83,24 +92,9 @@ export default function EntityAdvancedSearchPanel({
     <div className="entity-advanced-search-panel">
       <div className="entity-advanced-search-header">
         <h2 className="entity-advanced-search-title">
-          Sources
+          <span className="eas-heading-label">Advanced Search</span>{" "}
+          <span className="eas-heading-entity">{entity.name}</span>
         </h2>
-        <button
-          className="entity-advanced-search-collapse"
-          onClick={onCollapse}
-          aria-label="Collapse sidebar"
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        </button>
       </div>
 
       <div className="entity-advanced-search-body">
@@ -108,7 +102,8 @@ export default function EntityAdvancedSearchPanel({
         {cooccurrenceEntries.map(({ historyEntity, edge }) => (
           <section key={historyEntity.id} className="entity-advanced-search-section">
             <h3 className="entity-advanced-search-section-title">
-              Co-occurrence with {historyEntity.name}
+              <span className="cooc-verb">{edge.label ?? "Associated with"}</span>{" "}
+              {historyEntity.name}
             </h3>
             <div className="cooccurrence-stats">
               <div className="cooccurrence-stat">
@@ -133,11 +128,6 @@ export default function EntityAdvancedSearchPanel({
                 <span className="cooccurrence-stat-label">Patents</span>
               </div>
             </div>
-            {edge.label && (
-              <p className="cooccurrence-relation">
-                Relationship: <strong>{edge.label}</strong>
-              </p>
-            )}
           </section>
         ))}
 
@@ -151,27 +141,40 @@ export default function EntityAdvancedSearchPanel({
               No sources found for this entity.
             </p>
           ) : (
-            <div className="entity-advanced-search-sources">
-              {sources.map((item) => (
-                <a
-                  key={item.id}
-                  className="entity-advanced-search-source-card"
-                  href={`https://pubmed.ncbi.nlm.nih.gov/${item.pmid}/`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <p className="entity-advanced-search-source-title">
-                    {getSourceTitle(item)}
-                  </p>
-                  <div className="entity-advanced-search-source-footer">
-                    {item.year != null && item.year > 0 && (
-                      <span className="entity-advanced-search-source-year">{item.year}</span>
-                    )}
-                    <span className="entity-advanced-search-source-link">PubMed ↗</span>
+            <>
+              {groupedSources.map(([dbKey, dbItems]) => (
+                <div key={dbKey} className="entity-advanced-search-source-group">
+                  {groupedSources.length > 1 && (
+                    <h4 className="entity-advanced-search-source-group-label">
+                      {dbKey.charAt(0).toUpperCase() + dbKey.slice(1)}
+                    </h4>
+                  )}
+                  <div className="entity-advanced-search-sources">
+                    {dbItems.map((item) => (
+                      <a
+                        key={item.id}
+                        className="entity-advanced-search-source-card"
+                        href={`https://pubmed.ncbi.nlm.nih.gov/${item.pmid}/`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <p className="entity-advanced-search-source-title">
+                          {getSourceTitle(item)}
+                        </p>
+                        <div className="entity-advanced-search-source-footer">
+                          {item.year != null && item.year > 0 && (
+                            <span className="entity-advanced-search-source-year">{item.year}</span>
+                          )}
+                          {item.pmid && (
+                            <span className="entity-advanced-search-source-pmid">PMID {item.pmid}</span>
+                          )}
+                        </div>
+                      </a>
+                    ))}
                   </div>
-                </a>
+                </div>
               ))}
-            </div>
+            </>
           )}
         </section>
 
