@@ -35,11 +35,13 @@ interface SimNode extends SimulationNodeDatum {
   nodeSprite?: THREE.Sprite;
   labelSprite?: THREE.Sprite;
   animProgress: number; // 0 = just spawned, 1 = fully visible
+  selRing?: THREE.Mesh;
 }
 
 interface SimLink extends SimulationLinkDatum<SimNode> {
   id: string;
   label?: string;
+  predicate?: string;
   color?: string;
   line?: THREE.Line;
   glowMesh?: THREE.Mesh;
@@ -50,42 +52,17 @@ const EDGE_GLOW_WIDTH = 4;
 const EDGE_GLOW_OPACITY = 0.25;
 const NODE_RADIUS = 14;
 const BG_COLOR = 0xf0eee9;
-const BORDER_INNER_OFFSET = 1;
 const BORDER_OUTER_OFFSET = 2.5;
 
 // Canvas-rendered node texture constants
 const NODE_TEXTURE_SIZE = 256;
 const NODE_CIRCLE_RADIUS = 80;
-const NODE_GLOW_RADIUS = 120;
 // 45 * (80/256) ≈ 14 = NODE_RADIUS — keeps border rings aligned with visible circle
 const NODE_SPRITE_WORLD_SIZE = 45;
 const LABEL_PILL_PADDING_X = 10;
 const LABEL_PILL_PADDING_Y = 6;
 
-// --- Color utilities ---
-
-function colorWithAlpha(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-}
-
-function lightenColor(hex: string, amount: number): string {
-  const r = Math.min(255, parseInt(hex.slice(1, 3), 16) + Math.round(255 * amount));
-  const g = Math.min(255, parseInt(hex.slice(3, 5), 16) + Math.round(255 * amount));
-  const b = Math.min(255, parseInt(hex.slice(5, 7), 16) + Math.round(255 * amount));
-  return `rgb(${r},${g},${b})`;
-}
-
-function darkenColor(hex: string, amount: number): string {
-  const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - Math.round(255 * amount));
-  const g = Math.max(0, parseInt(hex.slice(3, 5), 16) - Math.round(255 * amount));
-  const b = Math.max(0, parseInt(hex.slice(5, 7), 16) - Math.round(255 * amount));
-  return `rgb(${r},${g},${b})`;
-}
-
-/** Renders glow + gradient circle + border onto a 256x256 canvas texture */
+/** Flat solid color circle with thin dark rim */
 function createNodeTexture(_entityType: string, color: string): THREE.CanvasTexture {
   const size = NODE_TEXTURE_SIZE;
   const canvas = document.createElement("canvas");
@@ -94,30 +71,17 @@ function createNodeTexture(_entityType: string, color: string): THREE.CanvasText
   const ctx = canvas.getContext("2d")!;
   const cx = size / 2;
   const cy = size / 2;
+  const r = NODE_CIRCLE_RADIUS;
 
-  // 1. Outer glow aura (entity color → transparent)
-  const glowGrad = ctx.createRadialGradient(cx, cy, NODE_CIRCLE_RADIUS * 0.8, cx, cy, NODE_GLOW_RADIUS);
-  glowGrad.addColorStop(0, colorWithAlpha(color, 0.18));
-  glowGrad.addColorStop(1, colorWithAlpha(color, 0));
-  ctx.fillStyle = glowGrad;
-  ctx.fillRect(0, 0, size, size);
-
-  // 2. Main circle with depth gradient (light center → full color → darkened rim)
-  const circleGrad = ctx.createRadialGradient(
-    cx - NODE_CIRCLE_RADIUS * 0.2, cy - NODE_CIRCLE_RADIUS * 0.2, 0,
-    cx, cy, NODE_CIRCLE_RADIUS
-  );
-  circleGrad.addColorStop(0, lightenColor(color, 0.35));
-  circleGrad.addColorStop(0.6, color);
-  circleGrad.addColorStop(1, darkenColor(color, 0.15));
+  // Flat fill
   ctx.beginPath();
-  ctx.arc(cx, cy, NODE_CIRCLE_RADIUS, 0, Math.PI * 2);
-  ctx.fillStyle = circleGrad;
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = color;
   ctx.fill();
 
-  // 3. Thin white border stroke
-  ctx.strokeStyle = "rgba(255,255,255,0.6)";
-  ctx.lineWidth = 2;
+  // Subtle dark rim (no gradient, no glow)
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.18)";
+  ctx.lineWidth = 3;
   ctx.stroke();
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -196,6 +160,7 @@ export default function GraphCanvas({
   disabledNodeIds,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const hoveredNodeRef = useRef<THREE.Mesh | null>(null);
   const selectedEntityIdRef = useRef<string | null>(selectedEntityId);
@@ -264,6 +229,7 @@ export default function GraphCanvas({
       .map((e) => ({
         id: e.id,
         label: e.label,
+        predicate: e.predicate,
         source: e.source,
         target: e.target,
         color: e.color,
@@ -348,7 +314,7 @@ export default function GraphCanvas({
         new THREE.Vector3(0, 0, 0),
       ]);
       const line = new THREE.Line(geometry, material);
-      line.userData = { edgeId: link.id };
+      line.userData = { edgeId: link.id, edgeLabel: link.label ?? (link.predicate ?? "").replace(/_/g, " ") };
       scene.add(line);
       link.line = line;
 
@@ -404,17 +370,8 @@ export default function GraphCanvas({
 
       const r = NODE_RADIUS * node.size;
 
-      // Expansion border ring + number badge
+      // Number badge on expanded nodes (no black ring)
       if (expandedNodeSet.has(node.id)) {
-        const ringGeo = createBorderRing(
-          NODE_RADIUS + BORDER_INNER_OFFSET,
-          NODE_RADIUS + BORDER_OUTER_OFFSET
-        );
-        const ringMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
-        const ring = new THREE.Mesh(ringGeo, ringMat);
-        ring.position.z = 0.5;
-        hitMesh.add(ring);
-
         const order = expandedNodes.indexOf(node.id) + 1;
         const badgeTexture = createNumberBadgeTexture(order);
         const badgeMat = new THREE.SpriteMaterial({ map: badgeTexture, transparent: true });
@@ -425,6 +382,17 @@ export default function GraphCanvas({
         badge.position.set(0, 0, 2);
         hitMesh.add(badge);
       }
+
+      // White ring for selected-node highlight (hidden by default)
+      const selRingGeo = createBorderRing(
+        NODE_RADIUS + BORDER_OUTER_OFFSET + 0.5,
+        NODE_RADIUS + BORDER_OUTER_OFFSET + 3.5
+      );
+      const selRingMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 });
+      const selRing = new THREE.Mesh(selRingGeo, selRingMat);
+      selRing.position.z = 0.6;
+      hitMesh.add(selRing);
+      node.selRing = selRing;
 
 
       // Label
@@ -588,35 +556,10 @@ export default function GraphCanvas({
 
       const node = getIntersectedNode(e);
       if (node && node !== hoveredNode) {
-        // Reset previous hovered node
-        if (hoveredNode) {
-          const s = (hoveredNode.userData.nodeSize as number) ?? 1;
-          hoveredNode.scale.set(s, s, 1);
-          const prevSimN = meshToSimNode.get(hoveredNode);
-          if (prevSimN?.nodeSprite) {
-            const ss = NODE_SPRITE_WORLD_SIZE * s;
-            prevSimN.nodeSprite.scale.set(ss, ss, 1);
-          }
-        }
-        // Scale up new hovered node
-        const s = (node.userData.nodeSize as number) ?? 1;
-        node.scale.set(s * 1.15, s * 1.15, 1);
-        const simN = meshToSimNode.get(node);
-        if (simN?.nodeSprite) {
-          const ss = NODE_SPRITE_WORLD_SIZE * s * 1.15;
-          simN.nodeSprite.scale.set(ss, ss, 1);
-        }
         hoveredNode = node;
         hoveredNodeRef.current = node;
         container.style.cursor = "pointer";
       } else if (!node && hoveredNode) {
-        const s = (hoveredNode.userData.nodeSize as number) ?? 1;
-        hoveredNode.scale.set(s, s, 1);
-        const simN = meshToSimNode.get(hoveredNode);
-        if (simN?.nodeSprite) {
-          const ss = NODE_SPRITE_WORLD_SIZE * s;
-          simN.nodeSprite.scale.set(ss, ss, 1);
-        }
         hoveredNode = null;
         hoveredNodeRef.current = null;
         container.style.cursor = "default";
@@ -648,6 +591,22 @@ export default function GraphCanvas({
             mat.opacity = 0.8;
           }
           hoveredEdgeLine = edge;
+          // Show tooltip
+          const label = edge.userData.edgeLabel as string;
+          if (label.length > 0 && tooltipRef.current) {
+            const rect = container.getBoundingClientRect();
+            tooltipRef.current.textContent = label;
+            tooltipRef.current.style.left = `${e.clientX - rect.left + 12}px`;
+            tooltipRef.current.style.top = `${e.clientY - rect.top - 8}px`;
+            tooltipRef.current.style.display = "block";
+          }
+        } else if (edge && hoveredEdgeLine === edge) {
+          // Same edge — just update tooltip position
+          if (tooltipRef.current && tooltipRef.current.style.display === "block") {
+            const rect = container.getBoundingClientRect();
+            tooltipRef.current.style.left = `${e.clientX - rect.left + 12}px`;
+            tooltipRef.current.style.top = `${e.clientY - rect.top - 8}px`;
+          }
         } else if (!edge && hoveredEdgeLine) {
           const hovEdgeId = hoveredEdgeLine.userData.edgeId as string;
           const isSelected = hovEdgeId === selectedEdgeIdRef.current;
@@ -662,6 +621,7 @@ export default function GraphCanvas({
             }
           }
           hoveredEdgeLine = null;
+          if (tooltipRef.current) tooltipRef.current.style.display = "none";
         }
         container.style.cursor = edge ? "pointer" : "default";
       }
@@ -669,13 +629,6 @@ export default function GraphCanvas({
 
     const handleMouseLeave = () => {
       if (hoveredNode) {
-        const s = (hoveredNode.userData.nodeSize as number) ?? 1;
-        hoveredNode.scale.set(s, s, 1);
-        const simN = meshToSimNode.get(hoveredNode);
-        if (simN?.nodeSprite) {
-          const ss = NODE_SPRITE_WORLD_SIZE * s;
-          simN.nodeSprite.scale.set(ss, ss, 1);
-        }
         hoveredNode = null;
         hoveredNodeRef.current = null;
         container.style.cursor = "default";
@@ -694,6 +647,7 @@ export default function GraphCanvas({
           }
         }
         hoveredEdgeLine = null;
+        if (tooltipRef.current) tooltipRef.current.style.display = "none";
       }
     };
 
@@ -776,7 +730,7 @@ export default function GraphCanvas({
     const animate = () => {
       animId = requestAnimationFrame(animate);
 
-      // Fade-in + scale-up animation for newly expanded nodes
+      // Fade-in + scale-up animation for newly expanded nodes; selection/hover scale every frame
       simNodes.forEach((node) => {
         if (node.animProgress < 1) {
           node.animProgress = Math.min(1, node.animProgress + ANIM_SPEED);
@@ -795,6 +749,20 @@ export default function GraphCanvas({
           if (node.labelSprite) {
             const isDisabled = disabledNodeIdsRef.current.has(node.id);
             (node.labelSprite.material as THREE.SpriteMaterial).opacity = (isDisabled ? 0.55 : 1.0) * eased;
+          }
+        } else {
+          // Fully animated: apply selection + hover scale every frame
+          const isSelected = node.id === selectedEntityIdRef.current;
+          const isHovered = node.mesh === hoveredNodeRef.current;
+          const scaleMult = isSelected ? 1.25 : (isHovered ? 1.15 : 1.0);
+          node.mesh?.scale.set(node.size * scaleMult, node.size * scaleMult, 1);
+          node.nodeSprite?.scale.set(
+            NODE_SPRITE_WORLD_SIZE * node.size * scaleMult,
+            NODE_SPRITE_WORLD_SIZE * node.size * scaleMult,
+            1
+          );
+          if (node.selRing) {
+            (node.selRing.material as THREE.MeshBasicMaterial).opacity = isSelected ? 1 : 0;
           }
         }
       });
@@ -863,5 +831,27 @@ export default function GraphCanvas({
     return <div className="graph-empty" />;
   }
 
-  return <div ref={containerRef} className="graph-container" />;
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <div ref={containerRef} className="graph-container" />
+      <div
+        ref={tooltipRef}
+        style={{
+          display: "none",
+          position: "absolute",
+          pointerEvents: "none",
+          background: "rgba(255,255,255,0.92)",
+          color: "#888",
+          fontSize: "11px",
+          fontWeight: 400,
+          padding: "3px 8px",
+          borderRadius: "4px",
+          border: "1px solid #e0e0e0",
+          whiteSpace: "nowrap",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+          zIndex: 10,
+        }}
+      />
+    </div>
+  );
 }
