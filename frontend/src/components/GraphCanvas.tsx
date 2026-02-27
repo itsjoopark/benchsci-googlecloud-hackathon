@@ -40,9 +40,11 @@ interface SimNode extends SimulationNodeDatum {
 
 interface SimLink extends SimulationLinkDatum<SimNode> {
   id: string;
+  label?: string;
   color?: string;
   line?: THREE.Line;
   glowMesh?: THREE.Mesh;
+  labelSprite?: THREE.Sprite;
 }
 
 const EDGE_COLOR = 0xbdc3c7;
@@ -347,6 +349,42 @@ function createLabelTexture(text: string): THREE.Texture {
   return texture;
 }
 
+function createEdgeLabelTexture(text: string): THREE.Texture {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d")!;
+  const fontSize = 20;
+  const padX = 8;
+  const padY = 4;
+  ctx.font = `400 ${fontSize}px Inter, sans-serif`;
+  const metrics = ctx.measureText(text);
+  const textWidth = Math.ceil(metrics.width);
+  const width = textWidth + padX * 2 + 8;
+  const height = fontSize + padY * 2 + 8;
+  canvas.width = width;
+  canvas.height = height;
+  // Background pill
+  ctx.fillStyle = "rgba(240, 238, 233, 0.85)";
+  const r = height / 2;
+  ctx.beginPath();
+  ctx.moveTo(r, 0);
+  ctx.lineTo(width - r, 0);
+  ctx.arc(width - r, r, r, -Math.PI / 2, Math.PI / 2);
+  ctx.lineTo(r, height);
+  ctx.arc(r, r, r, Math.PI / 2, -Math.PI / 2);
+  ctx.closePath();
+  ctx.fill();
+  // Text
+  ctx.font = `400 ${fontSize}px Inter, sans-serif`;
+  ctx.fillStyle = "#555555";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, width / 2, height / 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  return texture;
+}
+
 function createNumberBadgeTexture(n: number): THREE.Texture {
   const size = 64;
   const canvas = document.createElement("canvas");
@@ -446,6 +484,7 @@ export default function GraphCanvas({
       .filter((e) => nodeMap.has(e.source) && nodeMap.has(e.target))
       .map((e) => ({
         id: e.id,
+        label: e.label,
         source: e.source,
         target: e.target,
         color: e.color,
@@ -548,6 +587,19 @@ export default function GraphCanvas({
       glowMesh.visible = false;
       scene.add(glowMesh);
       link.glowMesh = glowMesh;
+
+      // Edge label sprite
+      if (link.label) {
+        const labelTex = createEdgeLabelTexture(link.label);
+        const labelMat = new THREE.SpriteMaterial({ map: labelTex, transparent: true, depthWrite: false });
+        const labelSprite = new THREE.Sprite(labelMat);
+        const texImg = labelTex.source.data as { width: number; height: number };
+        const aspect = texImg.width / texImg.height;
+        labelSprite.scale.set(aspect * 11, 11, 1);
+        labelSprite.position.z = 0.5;
+        scene.add(labelSprite);
+        link.labelSprite = labelSprite;
+      }
 
       edgeMeshes.push(link);
     });
@@ -708,13 +760,26 @@ export default function GraphCanvas({
             mat.opacity = 0.6;
           }
 
+          const dx = t.x - s.x;
+          const dy = t.y - s.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
           if (link.glowMesh) {
-            const dx = t.x - s.x;
-            const dy = t.y - s.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
             link.glowMesh.position.set((s.x + t.x) / 2, (s.y + t.y) / 2, 0.1);
             link.glowMesh.rotation.z = Math.atan2(dy, dx);
             link.glowMesh.scale.set(dist, EDGE_GLOW_WIDTH, 1);
+          }
+
+          if (link.labelSprite) {
+            link.labelSprite.position.set((s.x + t.x) / 2, (s.y + t.y) / 2 + 6, 0.5);
+            const labelMat = link.labelSprite.material as THREE.SpriteMaterial;
+            if (eitherDisabled) {
+              labelMat.opacity = 0.15;
+            } else if (isSelected || isExpansionPath) {
+              labelMat.opacity = 1.0;
+            } else {
+              labelMat.opacity = 0.7;
+            }
           }
         }
       });
@@ -1013,6 +1078,11 @@ export default function GraphCanvas({
         if (link.glowMesh) {
           link.glowMesh.geometry.dispose();
           (link.glowMesh.material as THREE.MeshBasicMaterial).dispose();
+        }
+        if (link.labelSprite) {
+          const mat = link.labelSprite.material as THREE.SpriteMaterial;
+          mat.map?.dispose();
+          mat.dispose();
         }
       });
       renderer.dispose();

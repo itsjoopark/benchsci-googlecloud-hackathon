@@ -1,4 +1,5 @@
 .app-wrapper {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -29,12 +30,102 @@
 }
 
 .app-layout {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
   margin-top: 48px;
   overflow: hidden;
-  background: var(--color-bg-primary);
+}
+
+/* ── Animated background blobs ── */
+
+.blob-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  will-change: transform;
+  opacity: 0.25;
+}
+
+.blob-1 {
+  width: 600px;
+  height: 600px;
+  background: var(--color-gene);       /* #4A90D9 blue */
+  top: -10%;
+  left: -5%;
+  animation: blob-drift-1 25s ease-in-out infinite alternate;
+}
+
+.blob-2 {
+  width: 500px;
+  height: 500px;
+  background: var(--color-protein);    /* #9B59B6 purple */
+  bottom: -15%;
+  right: -5%;
+  animation: blob-drift-2 30s ease-in-out infinite alternate;
+}
+
+.blob-3 {
+  width: 550px;
+  height: 550px;
+  background: var(--color-drug);       /* #2ECC71 green */
+  top: 50%;
+  left: 40%;
+  transform: translate(-50%, -50%);
+  animation: blob-drift-3 22s ease-in-out infinite alternate;
+}
+
+.blob-4 {
+  width: 400px;
+  height: 400px;
+  background: var(--color-disease);    /* #E74C3C red */
+  top: 10%;
+  right: 20%;
+  opacity: 0.18;
+  animation: blob-drift-4 28s ease-in-out infinite alternate;
+}
+
+@keyframes blob-drift-1 {
+  0%   { transform: translate(0, 0) rotate(0deg); }
+  33%  { transform: translate(80px, 60px) rotate(45deg); }
+  66%  { transform: translate(40px, 120px) rotate(90deg); }
+  100% { transform: translate(120px, 80px) rotate(135deg); }
+}
+
+@keyframes blob-drift-2 {
+  0%   { transform: translate(0, 0) rotate(0deg); }
+  33%  { transform: translate(-60px, -40px) rotate(-30deg); }
+  66%  { transform: translate(-100px, -80px) rotate(-75deg); }
+  100% { transform: translate(-70px, -120px) rotate(-120deg); }
+}
+
+@keyframes blob-drift-3 {
+  0%   { transform: translate(-50%, -50%) rotate(0deg); }
+  33%  { transform: translate(calc(-50% + 50px), calc(-50% - 70px)) rotate(60deg); }
+  66%  { transform: translate(calc(-50% - 60px), calc(-50% + 40px)) rotate(120deg); }
+  100% { transform: translate(calc(-50% + 30px), calc(-50% + 90px)) rotate(180deg); }
+}
+
+@keyframes blob-drift-4 {
+  0%   { transform: translate(0, 0) rotate(0deg); }
+  33%  { transform: translate(-40px, 80px) rotate(-45deg); }
+  66%  { transform: translate(60px, 50px) rotate(-90deg); }
+  100% { transform: translate(-30px, 100px) rotate(-135deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blob {
+    animation: none !important;
+  }
 }
 
 /* ── Panes ── */

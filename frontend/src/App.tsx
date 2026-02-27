@@ -554,6 +554,12 @@ function App() {
         <h1 className="top-nav-title">BioRender</h1>
       </nav>
       <div className="app-layout">
+      <div className="blob-bg" aria-hidden="true">
+        <div className="blob blob-1" />
+        <div className="blob blob-2" />
+        <div className="blob blob-3" />
+        <div className="blob blob-4" />
+      </div>
       {/* Left Pane - Exploration Path */}
       <aside className={`pane pane-left ${sidebarOpen ? "" : "collapsed"}`}>
         <div className="pane-header">
