@@ -9,6 +9,8 @@ import urllib.request
 from typing import Iterator
 
 from google.genai import types as genai_types
+from google.cloud import bigquery
+from vertexai.language_models import TextEmbeddingInput
 
 from backend.config import settings
 from backend.models.deep_think import (
@@ -18,11 +20,133 @@ from backend.models.deep_think import (
     DeepThinkPathNode,
     DeepThinkRequest,
 )
-from backend.services.overview import _get_genai_client
+from backend.services.overview import _get_bq_client, _get_embed_model, _get_genai_client, _get_index_endpoint, _tokenize
 
 logger = logging.getLogger(__name__)
 
 _MAX_PMIDS = 30
+_MAX_RAG_NEIGHBORS = 120
+_MAX_RAG_SNIPPETS = 12
+
+
+def _build_deep_query_text(path: list[DeepThinkPathNode], question: str | None = None) -> str:
+    chain = []
+    for i, node in enumerate(path):
+        if i > 0 and node.edge_predicate:
+            chain.append(node.edge_predicate)
+        chain.append(f"{node.entity_name} ({node.entity_type})")
+    base = " -> ".join(chain)
+    if question:
+        return f"Path: {base}\nQuestion: {question}"
+    return f"Path: {base}\nTask: Explain mechanistic biomedical links with evidence."
+
+
+def _retrieve_hybrid_rag_for_path(path: list[DeepThinkPathNode], question: str | None = None) -> list[dict]:
+    if not settings.VERTEX_VECTOR_ENDPOINT_RESOURCE or not settings.VERTEX_VECTOR_DEPLOYED_INDEX_ID:
+        return []
+    query_text = _build_deep_query_text(path, question)
+    try:
+        qv = _get_embed_model().get_embeddings(
+            [TextEmbeddingInput(text=query_text, task_type="RETRIEVAL_QUERY")]
+        )[0].values
+        endpoint = _get_index_endpoint()
+        neighbors = endpoint.find_neighbors(
+            deployed_index_id=settings.VERTEX_VECTOR_DEPLOYED_INDEX_ID,
+            queries=[qv],
+            num_neighbors=_MAX_RAG_NEIGHBORS,
+        )
+    except Exception as exc:
+        logger.warning("Deep Think hybrid RAG unavailable from Vertex: %s", exc)
+        return []
+
+    if not neighbors or not neighbors[0]:
+        return []
+
+    neighbor_dist: dict[str, float] = {}
+    for n in neighbors[0]:
+        cid = getattr(n, "id", None)
+        if cid:
+            neighbor_dist[str(cid)] = float(getattr(n, "distance", 0.0) or 0.0)
+    if not neighbor_dist:
+        return []
+
+    client = _get_bq_client()
+    chunks_sql = f"""
+    SELECT chunk_id, doc_id, doc_type, chunk_text, source_id
+    FROM `{settings.GCP_PROJECT_ID}.{settings.OVERVIEW_RAG_DATASET}.{settings.OVERVIEW_RAG_EMBED_TABLE}`
+    WHERE chunk_id IN UNNEST(@chunk_ids)
+    """
+    rows = list(
+        client.query(
+            chunks_sql,
+            job_config=bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ArrayQueryParameter("chunk_ids", "STRING", list(neighbor_dist.keys()))
+                ]
+            ),
+        ).result()
+    )
+    if not rows:
+        return []
+
+    entity_ids = [p.entity_id for p in path]
+    doc_ids = list({str(r["doc_id"]) for r in rows})
+    eligible_doc_ids: set[str] = set(doc_ids)
+    if entity_ids:
+        ent_sql = f"""
+        SELECT doc_id
+        FROM `{settings.GCP_PROJECT_ID}.{settings.OVERVIEW_RAG_DATASET}.{settings.OVERVIEW_RAG_ENTITY_TABLE}`
+        WHERE doc_id IN UNNEST(@doc_ids)
+          AND entity_id IN UNNEST(@entity_ids)
+        GROUP BY doc_id
+        HAVING COUNT(DISTINCT entity_id) >= 2
+        """
+        try:
+            ent_rows = list(
+                client.query(
+                    ent_sql,
+                    job_config=bigquery.QueryJobConfig(
+                        query_parameters=[
+                            bigquery.ArrayQueryParameter("doc_ids", "STRING", doc_ids),
+                            bigquery.ArrayQueryParameter("entity_ids", "STRING", entity_ids),
+                        ]
+                    ),
+                ).result()
+            )
+            if ent_rows:
+                eligible_doc_ids = {str(r["doc_id"]) for r in ent_rows}
+        except Exception as exc:
+            logger.warning("Deep Think entity filter skipped: %s", exc)
+
+    query_tokens = _tokenize(query_text)
+    scored: list[tuple[float, dict]] = []
+    for r in rows:
+        doc_id = str(r["doc_id"])
+        if doc_id not in eligible_doc_ids:
+            continue
+        chunk_id = str(r["chunk_id"])
+        dist = neighbor_dist.get(chunk_id, 0.0)
+        vec_score = 1.0 / (1.0 + max(dist, 0.0))
+        toks = _tokenize(str(r["chunk_text"]))
+        kw_score = len(query_tokens & toks) / max(1, len(query_tokens))
+        score = (0.7 * vec_score) + (0.3 * kw_score)
+        scored.append(
+            (
+                score,
+                {
+                    "chunk_id": chunk_id,
+                    "doc_id": doc_id,
+                    "doc_type": str(r["doc_type"]),
+                    "source_id": str(r["source_id"]),
+                    "chunk_text": str(r["chunk_text"]),
+                    "distance": dist,
+                    "vector_score": vec_score,
+                    "keyword_score": kw_score,
+                },
+            )
+        )
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [item for _, item in scored[:_MAX_RAG_SNIPPETS]]
 
 
 def _extract_weighted_pmids(
@@ -90,6 +214,8 @@ def _build_deep_think_prompt(
     path: list[DeepThinkPathNode],
     papers: list[dict],
     edges: list[DeepThinkEdge],
+    question: str | None = None,
+    rag_snippets: list[dict] | None = None,
 ) -> str:
     # Build path chain with predicates
     chain_parts: list[str] = []
@@ -121,14 +247,26 @@ def _build_deep_think_prompt(
                     paper_lines.append(line)
 
     papers_section = "\n\n---\n\n".join(paper_lines) if paper_lines else "No papers available."
+    rag_lines = []
+    for r in (rag_snippets or [])[:8]:
+        rag_lines.append(f"{r.get('source_id') or r.get('doc_id')}: {str(r.get('chunk_text',''))[:320]}")
+    rag_section = "\n\n".join(f"- {x}" for x in rag_lines) if rag_lines else "No vector-retrieved snippets."
+
+    question_section = question.strip() if question else "No explicit user question provided."
 
     return f"""You are an expert biomedical scientist analyzing a multi-hop knowledge graph path.
 
 ## Path
 {path_chain}
 
+## User Question
+{question_section}
+
 ## Supporting Literature
 {papers_section}
+
+## Hybrid RAG Snippets (Vector + Keyword)
+{rag_section}
 
 ## Your Task
 Write a detailed scientific explanation of how these entities are connected along this path. Structure your response as follows:
@@ -220,6 +358,7 @@ def _run_verification(analysis: str, papers: list[dict]) -> None:
 def stream_deep_think_events(request: DeepThinkRequest) -> Iterator[str]:
     path = request.path
     edges = request.edges
+    question = request.question
 
     # Summarize path for start event
     path_summary = " → ".join(n.entity_name for n in path)
@@ -232,10 +371,11 @@ def stream_deep_think_events(request: DeepThinkRequest) -> Iterator[str]:
         },
     )
 
-    # Extract weighted PMIDs and fetch papers
+    # Extract weighted PMIDs, fetch papers, and retrieve hybrid RAG context
     try:
         pmid_weights = _extract_weighted_pmids(path, edges)
         papers = _fetch_s2_papers(pmid_weights, settings.SEMANTIC_SCHOLAR_API_KEY)
+        rag_snippets = _retrieve_hybrid_rag_for_path(path, question=question)
     except Exception as exc:
         logger.exception("Deep Think: failed to prepare paper context")
         yield _sse("error", {"message": "Failed to retrieve supporting papers.", "detail": str(exc)})
@@ -261,13 +401,19 @@ def stream_deep_think_events(request: DeepThinkRequest) -> Iterator[str]:
                         {"pmid": ev.pmid, "title": ev.title, "year": None, "abstract_snippet": ev.snippet[:300]}
                     )
 
-    yield _sse("papers_loaded", {"papers": paper_meta, "count": len(paper_meta)})
+    yield _sse("papers_loaded", {"papers": paper_meta, "count": len(paper_meta), "rag_count": len(rag_snippets)})
 
     # Stream analysis with model fallback
     full_text = ""
     try:
         client = _get_genai_client()
-        prompt = _build_deep_think_prompt(path, papers, edges)
+        prompt = _build_deep_think_prompt(
+            path,
+            papers,
+            edges,
+            question=question,
+            rag_snippets=rag_snippets,
+        )
         config = genai_types.GenerateContentConfig(
             temperature=0.3,
             max_output_tokens=1500,
@@ -362,6 +508,17 @@ def _build_papers_context(papers: list[dict], edge_fallback: list[DeepThinkEdge]
             if ev.title or ev.snippet:
                 lines.append(f"- {ev.title or 'n/a'}: {ev.snippet}")
     return "\n".join(lines) if lines else "No supporting literature available."
+
+
+def _build_rag_context(rag_snippets: list[dict]) -> str:
+    if not rag_snippets:
+        return "No vector-retrieved snippets available."
+    lines = []
+    for i, s in enumerate(rag_snippets[:15], start=1):
+        src = s.get("source_id") or s.get("doc_id") or "unknown"
+        snippet = str(s.get("chunk_text", ""))[:360]
+        lines.append(f"[R{i}] {src}: {snippet}")
+    return "\n".join(lines)
 
 
 def _maybe_compress_context(
@@ -490,14 +647,16 @@ def stream_deep_think_chat_events(request: DeepThinkChatRequest) -> Iterator[str
     path_summary = " → ".join(n.entity_name for n in path)
     yield _sse("start", {"path_summary": path_summary, "node_count": len(path)})
 
-    # Step 1 — fetch papers
+    # Step 1 — fetch papers + hybrid RAG
     try:
         pmid_weights = _extract_weighted_pmids(path, edges)
         papers = _fetch_s2_papers(pmid_weights, settings.SEMANTIC_SCHOLAR_API_KEY)
+        rag_snippets = _retrieve_hybrid_rag_for_path(path, question=question)
     except Exception as exc:
         logger.warning("Paper fetch failed, continuing without S2: %s", exc)
         papers = []
         pmid_weights = []
+        rag_snippets = []
 
     paper_meta = [
         {
@@ -517,14 +676,18 @@ def stream_deep_think_chat_events(request: DeepThinkChatRequest) -> Iterator[str
                         {"pmid": ev.pmid, "title": ev.title, "year": None, "abstract_snippet": ev.snippet[:250]}
                     )
 
-    yield _sse("papers_loaded", {"papers": paper_meta, "count": len(paper_meta)})
+    yield _sse("papers_loaded", {"papers": paper_meta, "count": len(paper_meta), "rag_count": len(rag_snippets)})
 
     # Step 2 — build + optionally compress paper context (Pro, query-aware)
     papers_context = _build_papers_context(papers, edges)
     papers_context = _maybe_compress_context(papers_context, question, path)
+    rag_context = _build_rag_context(rag_snippets)
 
     # Step 3 — build system instruction and conversation contents
-    system_instruction = _build_system_instruction(path, papers_context)
+    system_instruction = _build_system_instruction(
+        path,
+        papers_context + "\n\nHybrid RAG snippets:\n" + rag_context,
+    )
 
     contents: list[genai_types.Content] = []
     # Include last 10 turns to avoid token overflow

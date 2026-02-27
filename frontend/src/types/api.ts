@@ -122,6 +122,7 @@ export interface DeepThinkEdgePayload {
 export interface DeepThinkRequestPayload {
   path: DeepThinkPathNodePayload[];
   edges: DeepThinkEdgePayload[];
+  question?: string;
 }
 
 export interface DeepThinkPaper {

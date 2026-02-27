@@ -118,3 +118,12 @@ For run prefix `gs://<bucket>/<prefix>`:
   - chunks: `113`
   - embedded: `113`
   - failures: `0`
+
+## Retrieval mode (current backend)
+
+- Evidence retrieval is hybrid:
+  - vector similarity from Vertex AI Vector Search
+  - keyword overlap scoring on retrieved chunk text
+  - combined score: `0.7 * vector + 0.3 * keyword`
+- Deep-think endpoints include user question context in retrieval query text when provided.
+- Candidate evidence is constrained by graph context via node/entity filtering before final ranking.

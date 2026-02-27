@@ -221,7 +221,7 @@ export async function streamOverview(
 
 interface DeepThinkStreamHandlers {
   onStart?: (payload: { path_summary: string; node_count: number }) => void;
-  onPapersLoaded?: (payload: { papers: DeepThinkPaper[]; count: number }) => void;
+  onPapersLoaded?: (payload: { papers: DeepThinkPaper[]; count: number; rag_count?: number }) => void;
   onDelta?: (payload: { text: string }) => void;
   onDone?: (payload: { text: string }) => void;
   onError?: (payload: { message: string; partial_text?: string }) => void;
@@ -273,6 +273,7 @@ export async function streamDeepThink(
         handlers.onPapersLoaded?.({
           papers: (parsed.data.papers as DeepThinkPaper[]) ?? [],
           count: Number(parsed.data.count ?? 0),
+          rag_count: Number(parsed.data.rag_count ?? 0),
         });
       } else if (parsed.event === "delta") {
         handlers.onDelta?.({ text: String(parsed.data.text ?? "") });
