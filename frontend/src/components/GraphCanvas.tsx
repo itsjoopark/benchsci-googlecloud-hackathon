@@ -19,6 +19,7 @@ interface Props {
   selectedEdgeId: string | null;
   expandedNodes: Set<string>;
   path: PathNode[];
+  historyEdgeIds: Set<string>;
   onNodeSelect: (nodeId: string) => void;
   onNodeExpand: (nodeId: string) => void;
   onEdgeSelect: (edgeId: string) => void;
@@ -48,6 +49,7 @@ const EDGE_GLOW_WIDTH = 8;
 const EDGE_GLOW_OPACITY = 0.25;
 const NODE_RADIUS = 14;
 const BG_COLOR = 0xf0eee9;
+const SELECTED_COLOR = 0xFFD700; // yellow for selected nodes/edges
 
 function createNodeGeometry(entityType: string): THREE.BufferGeometry {
   switch (entityType) {
@@ -119,6 +121,7 @@ export default function GraphCanvas({
   selectedEdgeId,
   expandedNodes,
   path,
+  historyEdgeIds,
   onNodeSelect,
   onNodeExpand,
   onEdgeSelect,
@@ -129,6 +132,7 @@ export default function GraphCanvas({
   const hoveredNodeRef = useRef<THREE.Mesh | null>(null);
   const selectedEntityIdRef = useRef<string | null>(selectedEntityId);
   const selectedEdgeIdRef = useRef<string | null>(selectedEdgeId);
+  const historyEdgeIdsRef = useRef<Set<string>>(historyEdgeIds);
   const onNodeSelectRef = useRef(onNodeSelect);
   const onNodeExpandRef = useRef(onNodeExpand);
   const onEdgeSelectRef = useRef(onEdgeSelect);
@@ -143,6 +147,7 @@ export default function GraphCanvas({
 
   selectedEntityIdRef.current = selectedEntityId;
   selectedEdgeIdRef.current = selectedEdgeId;
+  historyEdgeIdsRef.current = historyEdgeIds;
   onNodeSelectRef.current = onNodeSelect;
   onNodeExpandRef.current = onNodeExpand;
   onEdgeSelectRef.current = onEdgeSelect;
@@ -365,9 +370,10 @@ export default function GraphCanvas({
           positions.needsUpdate = true;
 
           const isSelected = link.id === selectedEdgeIdRef.current;
+          const isHistoryEdge = historyEdgeIdsRef.current.has(link.id);
           const mat = link.line.material as THREE.LineBasicMaterial;
-          mat.color.setHex(isSelected ? 0x4A90D9 : EDGE_COLOR);
-          mat.opacity = isSelected ? 1 : 0.6;
+          mat.color.setHex(isSelected || isHistoryEdge ? SELECTED_COLOR : EDGE_COLOR);
+          mat.opacity = isSelected || isHistoryEdge ? 1 : 0.6;
 
           if (link.glowMesh) {
             const dx = t.x - s.x;
@@ -602,6 +608,9 @@ export default function GraphCanvas({
           const isEdgeEndpoint = selectedEdgeIdRef.current !== null &&
             isConnectedToEdge(node.id, selectedEdgeIdRef.current);
           node.glowMesh.visible = isHovered || isEdgeEndpoint;
+          const glowMat = node.glowMesh.material as THREE.MeshBasicMaterial;
+          glowMat.color.set(node.color);
+          glowMat.opacity = 0.5;
         }
       });
       simLinks.forEach((link) => {
@@ -609,7 +618,17 @@ export default function GraphCanvas({
           const isHovered = hoveredEdgeLine !== null &&
             hoveredEdgeLine.userData.edgeId === link.id;
           const isSelected = link.id === selectedEdgeIdRef.current;
-          link.glowMesh.visible = isHovered || isSelected;
+          const isHistoryEdge = historyEdgeIdsRef.current.has(link.id);
+          link.glowMesh.visible = isHovered || isSelected || isHistoryEdge;
+          const glowMat = link.glowMesh.material as THREE.MeshBasicMaterial;
+          if (isHistoryEdge || isSelected) {
+            glowMat.color.setHex(SELECTED_COLOR);
+            glowMat.opacity = 0.45;
+          } else {
+            const baseColor = link.color ? new THREE.Color(link.color) : new THREE.Color(0x7FB3E0);
+            glowMat.color.copy(baseColor);
+            glowMat.opacity = EDGE_GLOW_OPACITY;
+          }
         }
       });
       renderer.render(scene, camera);

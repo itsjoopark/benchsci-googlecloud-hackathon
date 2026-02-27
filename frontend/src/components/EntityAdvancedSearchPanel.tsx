@@ -4,6 +4,7 @@ import "./EntityAdvancedSearchPanel.css";
 
 interface Props {
   entity: Entity;
+  selectionHistory: Entity[];
   edges: GraphEdge[];
   onCollapse: () => void;
 }
@@ -34,14 +35,33 @@ function collectSourcesFromEdges(entityId: string, edges: GraphEdge[]): Evidence
   return items;
 }
 
+function findConnectingEdge(
+  entityA: string,
+  entityB: string,
+  edges: GraphEdge[]
+): GraphEdge | undefined {
+  return edges.find(
+    (e) =>
+      (e.source === entityA && e.target === entityB) ||
+      (e.source === entityB && e.target === entityA)
+  );
+}
+
 export default function EntityAdvancedSearchPanel({
   entity,
+  selectionHistory,
   edges,
   onCollapse,
 }: Props) {
   const research = getEntityResearch(entity.id);
   const sources = collectSourcesFromEdges(entity.id, edges);
   const overviewTitle = getOverviewSectionTitle(entity.type);
+
+  // Find all history nodes (excluding the current entity) that have a connecting edge
+  const cooccurrenceEntries = selectionHistory
+    .filter((h) => h.id !== entity.id)
+    .map((h) => ({ historyEntity: h, edge: findConnectingEdge(entity.id, h.id, edges) }))
+    .filter((entry): entry is { historyEntity: Entity; edge: GraphEdge } => entry.edge !== undefined);
 
   return (
     <div className="entity-advanced-search-panel">
@@ -68,6 +88,43 @@ export default function EntityAdvancedSearchPanel({
       </div>
 
       <div className="entity-advanced-search-body">
+        {/* Co-occurrence stats for all connected history nodes */}
+        {cooccurrenceEntries.map(({ historyEntity, edge }) => (
+          <section key={historyEntity.id} className="entity-advanced-search-section">
+            <h3 className="entity-advanced-search-section-title">
+              Co-occurrence with {historyEntity.name}
+            </h3>
+            <div className="cooccurrence-stats">
+              <div className="cooccurrence-stat">
+                <span className="cooccurrence-stat-icon">📄</span>
+                <span className="cooccurrence-stat-value">
+                  {edge.paperCount?.toLocaleString() ?? "—"}
+                </span>
+                <span className="cooccurrence-stat-label">Papers</span>
+              </div>
+              <div className="cooccurrence-stat">
+                <span className="cooccurrence-stat-icon">🧪</span>
+                <span className="cooccurrence-stat-value">
+                  {edge.trialCount?.toLocaleString() ?? "—"}
+                </span>
+                <span className="cooccurrence-stat-label">Trials</span>
+              </div>
+              <div className="cooccurrence-stat">
+                <span className="cooccurrence-stat-icon">📋</span>
+                <span className="cooccurrence-stat-value">
+                  {edge.patentCount?.toLocaleString() ?? "—"}
+                </span>
+                <span className="cooccurrence-stat-label">Patents</span>
+              </div>
+            </div>
+            {edge.label && (
+              <p className="cooccurrence-relation">
+                Relationship: <strong>{edge.label}</strong>
+              </p>
+            )}
+          </section>
+        ))}
+
         {/* Sources */}
         <section className="entity-advanced-search-section">
           <h3 className="entity-advanced-search-section-title">
