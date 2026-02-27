@@ -99,6 +99,7 @@ def _stream_overview_generation(prompt: str) -> tuple[Iterator[genai_types.Gener
         temperature=0.2,
         top_p=0.9,
         max_output_tokens=600,
+        thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
     )
     model_name = settings.GEMINI_OVERVIEW_MODEL.strip()
     if not model_name:
@@ -581,6 +582,27 @@ def stream_overview_events(request: OverviewStreamRequest):
     )
 
     full_text = ""
+
+    def extract_chunk_text(chunk: genai_types.GenerateContentResponse) -> str:
+        text = getattr(chunk, "text", None)
+        if text:
+            return text
+        if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
+            return "".join(part.text or "" for part in chunk.candidates[0].content.parts)
+        return ""
+
+    def compute_delta(current: str, previous_full: str) -> tuple[str, str]:
+        # SDK responses can be either cumulative or delta-chunks.
+        # Normalize to emitted deltas while preserving full text for done event.
+        if not current:
+            return "", previous_full
+        if current.startswith(previous_full):
+            return current[len(previous_full):], current
+        if previous_full.startswith(current):
+            return "", previous_full
+        # Fallback for true delta chunks or mixed chunking behavior.
+        return current, previous_full + current
+
     try:
         prompt = _prompt_text(context, rag_chunks, request.history, orkg_text)
         stream, chosen_model = _stream_overview_generation(prompt)
@@ -588,15 +610,11 @@ def stream_overview_events(request: OverviewStreamRequest):
         _resolved_generation_model_name = chosen_model
 
         for chunk in stream:
-            text = getattr(chunk, "text", None)
-            if text is None:
-                text = ""
-                if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
-                    text = "".join(part.text or "" for part in chunk.candidates[0].content.parts)
-            if not text:
+            chunk_text = extract_chunk_text(chunk)
+            delta, full_text = compute_delta(chunk_text, full_text)
+            if not delta:
                 continue
-            full_text += text
-            yield _sse("delta", {"text": text})
+            yield _sse("delta", {"text": delta})
 
         yield _sse(
             "done",

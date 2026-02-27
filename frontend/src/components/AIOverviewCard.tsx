@@ -76,7 +76,11 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
       onDone: (payload) => {
         const finalText = payload.text || "";
         // Never shrink text on done: keep streaming deltas if they're longer.
-        setRawText((prev) => (finalText.length > prev.length ? finalText : prev));
+        setRawText((prev) => {
+          const merged = finalText.length > prev.length ? finalText : prev;
+          setVisibleCount(merged.length);
+          return merged;
+        });
         setLoading(false);
 
         if (payload.citations?.length) {
@@ -94,6 +98,7 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
       onError: (payload) => {
         if (payload.partial_text) {
           setRawText(payload.partial_text);
+          setVisibleCount(payload.partial_text.length);
         }
         setError(payload.message);
         setLoading(false);
