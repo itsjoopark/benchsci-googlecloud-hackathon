@@ -36,6 +36,7 @@ interface SimNode extends SimulationNodeDatum {
   mesh?: THREE.Mesh;
   nodeSprite?: THREE.Sprite;
   labelSprite?: THREE.Sprite;
+  animProgress: number; // 0 = just spawned, 1 = fully visible
 }
 
 interface SimLink extends SimulationLinkDatum<SimNode> {
@@ -44,7 +45,6 @@ interface SimLink extends SimulationLinkDatum<SimNode> {
   color?: string;
   line?: THREE.Line;
   glowMesh?: THREE.Mesh;
-  labelSprite?: THREE.Sprite;
 }
 
 const EDGE_COLOR = 0xbdc3c7;
@@ -349,42 +349,6 @@ function createLabelTexture(text: string): THREE.Texture {
   return texture;
 }
 
-function createEdgeLabelTexture(text: string): THREE.Texture {
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d")!;
-  const fontSize = 20;
-  const padX = 8;
-  const padY = 4;
-  ctx.font = `400 ${fontSize}px Inter, sans-serif`;
-  const metrics = ctx.measureText(text);
-  const textWidth = Math.ceil(metrics.width);
-  const width = textWidth + padX * 2 + 8;
-  const height = fontSize + padY * 2 + 8;
-  canvas.width = width;
-  canvas.height = height;
-  // Background pill
-  ctx.fillStyle = "rgba(240, 238, 233, 0.85)";
-  const r = height / 2;
-  ctx.beginPath();
-  ctx.moveTo(r, 0);
-  ctx.lineTo(width - r, 0);
-  ctx.arc(width - r, r, r, -Math.PI / 2, Math.PI / 2);
-  ctx.lineTo(r, height);
-  ctx.arc(r, r, r, Math.PI / 2, -Math.PI / 2);
-  ctx.closePath();
-  ctx.fill();
-  // Text
-  ctx.font = `400 ${fontSize}px Inter, sans-serif`;
-  ctx.fillStyle = "#555555";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(text, width / 2, height / 2);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.minFilter = THREE.LinearFilter;
-  return texture;
-}
-
 function createNumberBadgeTexture(n: number): THREE.Texture {
   const size = 64;
   const canvas = document.createElement("canvas");
@@ -473,6 +437,8 @@ export default function GraphCanvas({
         entityType: e.type,
         color: e.color ?? ENTITY_COLORS[e.type],
         size: e.size ?? 1,
+        // New nodes (no saved position) start invisible during expansions
+        animProgress: (isInitialRenderRef.current || savedPos) ? 1 : 0,
         ...(savedPos ? { x: savedPos.x, y: savedPos.y } : {}),
       };
     });
@@ -588,19 +554,6 @@ export default function GraphCanvas({
       scene.add(glowMesh);
       link.glowMesh = glowMesh;
 
-      // Edge label sprite
-      if (link.label) {
-        const labelTex = createEdgeLabelTexture(link.label);
-        const labelMat = new THREE.SpriteMaterial({ map: labelTex, transparent: true, depthWrite: false });
-        const labelSprite = new THREE.Sprite(labelMat);
-        const texImg = labelTex.source.data as { width: number; height: number };
-        const aspect = texImg.width / texImg.height;
-        labelSprite.scale.set(aspect * 11, 11, 1);
-        labelSprite.position.z = 0.5;
-        scene.add(labelSprite);
-        link.labelSprite = labelSprite;
-      }
-
       edgeMeshes.push(link);
     });
 
@@ -618,7 +571,8 @@ export default function GraphCanvas({
       const hitMesh = new THREE.Mesh(hitGeo, hitMat);
       hitMesh.userData = { nodeId: node.id, nodeSize: node.size };
       hitMesh.position.z = 1;
-      hitMesh.scale.set(node.size, node.size, 1);
+      const initScale = node.animProgress < 1 ? 0.001 : node.size;
+      hitMesh.scale.set(initScale, initScale, 1);
       scene.add(hitMesh);
       node.mesh = hitMesh;
       meshToSimNode.set(hitMesh, node);
@@ -628,7 +582,9 @@ export default function GraphCanvas({
       const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
       const nodeSprite = new THREE.Sprite(spriteMat);
       const spriteScale = NODE_SPRITE_WORLD_SIZE * node.size;
-      nodeSprite.scale.set(spriteScale, spriteScale, 1);
+      const initSpriteScale = node.animProgress < 1 ? 0.001 : spriteScale;
+      nodeSprite.scale.set(initSpriteScale, initSpriteScale, 1);
+      if (node.animProgress < 1) spriteMat.opacity = 0;
       nodeSprite.position.z = 1;
       scene.add(nodeSprite);
       node.nodeSprite = nodeSprite;
@@ -675,6 +631,7 @@ export default function GraphCanvas({
         map: texture,
         transparent: true,
       });
+      if (node.animProgress < 1) labelMat.opacity = 0;
       const labelSprite = new THREE.Sprite(labelMat);
       const textureImage = texture.source.data as { width: number; height: number };
       const aspect = textureImage.width / textureImage.height;
@@ -723,13 +680,15 @@ export default function GraphCanvas({
           node.labelSprite.position.y = node.y - (r + 14);
         }
 
-        // Dim disabled (non-frontier) nodes
+        // Dim disabled (non-frontier) nodes, respecting fade-in animation
         const isDisabled = disabledNodeIdsRef.current.has(node.id);
+        const baseOpacity = isDisabled ? 0.55 : 1.0;
+        const eased = node.animProgress >= 1 ? 1 : node.animProgress * (2 - node.animProgress);
         if (node.nodeSprite) {
-          (node.nodeSprite.material as THREE.SpriteMaterial).opacity = isDisabled ? 0.35 : 1.0;
+          (node.nodeSprite.material as THREE.SpriteMaterial).opacity = baseOpacity * eased;
         }
         if (node.labelSprite) {
-          (node.labelSprite.material as THREE.SpriteMaterial).opacity = isDisabled ? 0.35 : 1.0;
+          (node.labelSprite.material as THREE.SpriteMaterial).opacity = baseOpacity * eased;
         }
       });
 
@@ -746,18 +705,21 @@ export default function GraphCanvas({
           const isExpansionPath = expansionEdgeIds.has(link.id);
           const eitherDisabled = disabledNodeIdsRef.current.has(s.id) || disabledNodeIdsRef.current.has(t.id);
           const mat = link.line.material as THREE.LineBasicMaterial;
+          // Fade-in edges connected to new nodes
+          const edgeAnimProgress = Math.min(s.animProgress ?? 1, t.animProgress ?? 1);
+          const edgeEased = edgeAnimProgress >= 1 ? 1 : edgeAnimProgress * (2 - edgeAnimProgress);
           if (isSelected) {
             mat.color.setHex(0x4A90D9);
-            mat.opacity = 1;
+            mat.opacity = 1 * edgeEased;
           } else if (isExpansionPath) {
             mat.color.setHex(0x000000);
-            mat.opacity = 1.0;
+            mat.opacity = 1.0 * edgeEased;
           } else if (eitherDisabled) {
             mat.color.setHex(EDGE_COLOR);
-            mat.opacity = 0.15;
+            mat.opacity = 0.3 * edgeEased;
           } else {
             mat.color.setHex(EDGE_COLOR);
-            mat.opacity = 0.6;
+            mat.opacity = 0.6 * edgeEased;
           }
 
           const dx = t.x - s.x;
@@ -768,18 +730,6 @@ export default function GraphCanvas({
             link.glowMesh.position.set((s.x + t.x) / 2, (s.y + t.y) / 2, 0.1);
             link.glowMesh.rotation.z = Math.atan2(dy, dx);
             link.glowMesh.scale.set(dist, EDGE_GLOW_WIDTH, 1);
-          }
-
-          if (link.labelSprite) {
-            link.labelSprite.position.set((s.x + t.x) / 2, (s.y + t.y) / 2 + 6, 0.5);
-            const labelMat = link.labelSprite.material as THREE.SpriteMaterial;
-            if (eitherDisabled) {
-              labelMat.opacity = 0.15;
-            } else if (isSelected || isExpansionPath) {
-              labelMat.opacity = 1.0;
-            } else {
-              labelMat.opacity = 0.7;
-            }
           }
         }
       });
@@ -1030,8 +980,33 @@ export default function GraphCanvas({
 
     // Render loop
     let animId: number;
+    const ANIM_SPEED = 0.018; // ~56 frames ≈ 930ms at 60fps
     const animate = () => {
       animId = requestAnimationFrame(animate);
+
+      // Fade-in + scale-up animation for newly expanded nodes
+      simNodes.forEach((node) => {
+        if (node.animProgress < 1) {
+          node.animProgress = Math.min(1, node.animProgress + ANIM_SPEED);
+          const t = node.animProgress;
+          const eased = t * (2 - t); // ease-out quadratic
+
+          if (node.nodeSprite) {
+            const targetScale = NODE_SPRITE_WORLD_SIZE * node.size;
+            node.nodeSprite.scale.set(targetScale * eased, targetScale * eased, 1);
+            const isDisabled = disabledNodeIdsRef.current.has(node.id);
+            (node.nodeSprite.material as THREE.SpriteMaterial).opacity = (isDisabled ? 0.55 : 1.0) * eased;
+          }
+          if (node.mesh) {
+            node.mesh.scale.set(node.size * eased, node.size * eased, 1);
+          }
+          if (node.labelSprite) {
+            const isDisabled = disabledNodeIdsRef.current.has(node.id);
+            (node.labelSprite.material as THREE.SpriteMaterial).opacity = (isDisabled ? 0.55 : 1.0) * eased;
+          }
+        }
+      });
+
       simLinks.forEach((link) => {
         if (link.glowMesh) {
           const isHovered = hoveredEdgeLine !== null &&
@@ -1078,11 +1053,6 @@ export default function GraphCanvas({
         if (link.glowMesh) {
           link.glowMesh.geometry.dispose();
           (link.glowMesh.material as THREE.MeshBasicMaterial).dispose();
-        }
-        if (link.labelSprite) {
-          const mat = link.labelSprite.material as THREE.SpriteMaterial;
-          mat.map?.dispose();
-          mat.dispose();
         }
       });
       renderer.dispose();

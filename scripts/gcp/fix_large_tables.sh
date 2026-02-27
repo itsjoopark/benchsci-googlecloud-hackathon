@@ -159,19 +159,26 @@ track() {
 }
 
 # ══════════════════════════════════════════════════════════════════════
-# A04_Abstract on Instance B
+# Run BOTH exports in parallel (different instances → no conflicts)
 # ══════════════════════════════════════════════════════════════════════
-echo "═══ A04_Abstract (Instance B) ══════════════════════════════"
-wait_for_ops pkg25-import-b
-track export_large_table pkg25-import-b A04_Abstract
+echo "═══ Parallel: A04 (Instance B) + C06 (Instance C) ═════════"
+echo "[$(ts)] Launching both exports in parallel..."
 echo ""
 
-# ══════════════════════════════════════════════════════════════════════
-# C06_Link_Papers_BioEntities on Instance C
-# ══════════════════════════════════════════════════════════════════════
-echo "═══ C06_Link_Papers_BioEntities (Instance C) ══════════════"
-wait_for_ops pkg25-import-c
-track export_large_table pkg25-import-c C06_Link_Papers_BioEntities
+export_large_table pkg25-import-b A04_Abstract  > /tmp/fix_A04.log 2>&1 &
+PID_A04=$!
+export_large_table pkg25-import-c C06_Link_Papers_BioEntities > /tmp/fix_C06.log 2>&1 &
+PID_C06=$!
+
+# Wait for both and track results
+A04_OK=0; C06_OK=0
+if wait ${PID_A04}; then A04_OK=1; PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); fi
+echo "── A04_Abstract ──"
+cat /tmp/fix_A04.log
+
+if wait ${PID_C06}; then C06_OK=1; PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); fi
+echo "── C06_Link_Papers_BioEntities ──"
+cat /tmp/fix_C06.log
 echo ""
 
 # ══════════════════════════════════════════════════════════════════════
