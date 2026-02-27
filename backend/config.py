@@ -36,7 +36,10 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",
         "http://localhost:8080",
+        "https://benchspark-frontend-113940992739.us-central1.run.app",
+        "https://benchspark-frontend-s7fuxsjnxq-uc.a.run.app",
     ]
+    CORS_ORIGIN_REGEX: str = r"^https://benchspark-frontend(-[a-z0-9-]+)?\.us-central1\.run\.app$"
 
 
 settings = Settings()

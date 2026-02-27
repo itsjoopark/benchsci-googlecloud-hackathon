@@ -6,7 +6,9 @@ import type {
 } from "../types/api";
 import { jsonNodeToEntity } from "./adapters";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  "https://benchspark-backend-s7fuxsjnxq-uc.a.run.app";
 
 export async function queryEntity(
   query: string,

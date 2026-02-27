@@ -5,12 +5,15 @@ substitutions:
   _SERVICE_NAME: benchspark-frontend
   _REGION: us-central1
   _AR_REPO: cloud-run-source-deploy
+  _VITE_API_BASE_URL: https://benchspark-backend-s7fuxsjnxq-uc.a.run.app
 
 steps:
   - name: gcr.io/cloud-builders/docker
     id: build-image
     args:
       - build
+      - --build-arg
+      - VITE_API_BASE_URL=${_VITE_API_BASE_URL}
       - -t
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}:$COMMIT_SHA
       - ./frontend

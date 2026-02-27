@@ -12,7 +12,7 @@ FRONTEND_SERVICE="${FRONTEND_SERVICE:-benchspark-frontend}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-benchspark-backend}"
 FRONTEND_TRIGGER="${FRONTEND_TRIGGER:-benchspark-frontend-main}"
 BACKEND_TRIGGER="${BACKEND_TRIGGER:-benchspark-backend-main}"
-OVERVIEW_API_KEY_SECRET="${OVERVIEW_API_KEY_SECRET:-overview-google-cloud-api-key}"
+OVERVIEW_API_KEY_SECRET="${OVERVIEW_API_KEY_SECRET:-GOOGLE_CLOUD_API_KEY}"
 
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
 CLOUDBUILD_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"

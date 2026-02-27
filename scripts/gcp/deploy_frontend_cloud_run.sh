@@ -4,6 +4,7 @@ set -euo pipefail
 PROJECT_ID="multihopwanderer-1771992134"
 SERVICE_NAME="benchspark-frontend"
 REGION="us-central1"
+BACKEND_SERVICE_NAME="${BACKEND_SERVICE_NAME:-benchspark-backend}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 KEY_PRIMARY="${REPO_ROOT}/multihopwanderer-1771992134-e47e99e17b16.json"
@@ -23,11 +24,24 @@ activate_key() {
 }
 
 deploy() {
+  local backend_url
+  backend_url="$(gcloud run services describe "${BACKEND_SERVICE_NAME}" \
+    --region "${REGION}" \
+    --project "${PROJECT_ID}" \
+    --format='value(status.url)' 2>/dev/null || true)"
+
+  if [[ -z "${backend_url}" ]]; then
+    echo "Unable to resolve backend URL from service ${BACKEND_SERVICE_NAME}." >&2
+    exit 1
+  fi
+
+  echo "Using frontend build API base: ${backend_url}"
   gcloud run deploy "${SERVICE_NAME}" \
     --source "${REPO_ROOT}/frontend" \
     --region "${REGION}" \
     --platform managed \
-    --allow-unauthenticated
+    --allow-unauthenticated \
+    --set-build-env-vars "VITE_API_BASE_URL=${backend_url}"
 }
 
 activate_key "${KEY_PRIMARY}"
