@@ -3,6 +3,8 @@ from backend.mappings import (
     BIOLINK_FALLBACK,
     RELATION_TYPE_TO_PREDICATE,
     PREDICATE_FALLBACK,
+    RELATION_TYPE_TO_DISPLAY_LABEL,
+    DISPLAY_LABEL_FALLBACK,
     ENTITY_TYPE_COLORS,
     COLOR_FALLBACK,
 )
@@ -31,6 +33,13 @@ def _label_from_predicate(predicate: str) -> str:
     """Derive a human-readable label from a biolink predicate."""
     label = predicate.replace("biolink:", "").replace("_", " ")
     return label
+
+
+def _display_label(relation_type: str | None) -> str:
+    """Return a PrimeKG-informed human-readable label for the relation."""
+    if not relation_type:
+        return DISPLAY_LABEL_FALLBACK
+    return RELATION_TYPE_TO_DISPLAY_LABEL.get(relation_type.lower(), DISPLAY_LABEL_FALLBACK)
 
 
 def build_graph_payload(
@@ -116,7 +125,7 @@ def build_graph_payload(
                 source=source,
                 target=target,
                 predicate=predicate,
-                label=_label_from_predicate(predicate),
+                label=_display_label(rel["relation_type"]),
                 color=_entity_color(other_type),
                 source_db="kg_raw",
                 direction=direction,

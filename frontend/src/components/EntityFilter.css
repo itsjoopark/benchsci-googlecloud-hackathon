@@ -74,16 +74,30 @@
   font-weight: 600;
 }
 
+.entity-filter-option-all.selected {
+  font-weight: 700;
+}
+
+.entity-filter-indicator {
+  width: 12px;
+  min-width: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .entity-filter-check {
-  display: inline-block;
-  width: 1em;
   font-weight: 600;
   color: var(--color-gene);
 }
 
-.entity-filter-dot {
+.entity-filter-dot-icon {
+  display: block;
   width: 8px;
   height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
+  flex: 0 0 8px;
+}
+
+.entity-filter-option-label {
+  white-space: nowrap;
 }
