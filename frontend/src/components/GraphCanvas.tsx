@@ -56,6 +56,7 @@ const BORDER_OUTER_OFFSET = 2.5;
 // Canvas-rendered node texture constants
 const NODE_TEXTURE_SIZE = 256;
 const NODE_CIRCLE_RADIUS = 80;
+const NODE_GLOW_RADIUS = 120;
 // 45 * (80/256) ≈ 14 = NODE_RADIUS — keeps border rings aligned with visible circle
 const NODE_SPRITE_WORLD_SIZE = 45;
 const LABEL_PILL_PADDING_X = 10;
@@ -70,7 +71,21 @@ function colorWithAlpha(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-/** Renders flat white circle with colored border ring onto a 256x256 canvas texture */
+function lightenColor(hex: string, amount: number): string {
+  const r = Math.min(255, parseInt(hex.slice(1, 3), 16) + Math.round(255 * amount));
+  const g = Math.min(255, parseInt(hex.slice(3, 5), 16) + Math.round(255 * amount));
+  const b = Math.min(255, parseInt(hex.slice(5, 7), 16) + Math.round(255 * amount));
+  return `rgb(${r},${g},${b})`;
+}
+
+function darkenColor(hex: string, amount: number): string {
+  const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - Math.round(255 * amount));
+  const g = Math.max(0, parseInt(hex.slice(3, 5), 16) - Math.round(255 * amount));
+  const b = Math.max(0, parseInt(hex.slice(5, 7), 16) - Math.round(255 * amount));
+  return `rgb(${r},${g},${b})`;
+}
+
+/** Renders glow + gradient circle + border onto a 256x256 canvas texture */
 function createNodeTexture(_entityType: string, color: string): THREE.CanvasTexture {
   const size = NODE_TEXTURE_SIZE;
   const canvas = document.createElement("canvas");
@@ -79,27 +94,30 @@ function createNodeTexture(_entityType: string, color: string): THREE.CanvasText
   const ctx = canvas.getContext("2d")!;
   const cx = size / 2;
   const cy = size / 2;
-  const r = NODE_CIRCLE_RADIUS;
-  const borderWidth = 9;
 
-  // Subtle outer glow halo
-  const glowGrad = ctx.createRadialGradient(cx, cy, r * 0.75, cx, cy, r * 1.45);
-  glowGrad.addColorStop(0, colorWithAlpha(color, 0.10));
+  // 1. Outer glow aura (entity color → transparent)
+  const glowGrad = ctx.createRadialGradient(cx, cy, NODE_CIRCLE_RADIUS * 0.8, cx, cy, NODE_GLOW_RADIUS);
+  glowGrad.addColorStop(0, colorWithAlpha(color, 0.18));
   glowGrad.addColorStop(1, colorWithAlpha(color, 0));
   ctx.fillStyle = glowGrad;
   ctx.fillRect(0, 0, size, size);
 
-  // White circle fill
+  // 2. Main circle with depth gradient (light center → full color → darkened rim)
+  const circleGrad = ctx.createRadialGradient(
+    cx - NODE_CIRCLE_RADIUS * 0.2, cy - NODE_CIRCLE_RADIUS * 0.2, 0,
+    cx, cy, NODE_CIRCLE_RADIUS
+  );
+  circleGrad.addColorStop(0, lightenColor(color, 0.35));
+  circleGrad.addColorStop(0.6, color);
+  circleGrad.addColorStop(1, darkenColor(color, 0.15));
   ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+  ctx.arc(cx, cy, NODE_CIRCLE_RADIUS, 0, Math.PI * 2);
+  ctx.fillStyle = circleGrad;
   ctx.fill();
 
-  // Colored border ring (inset by half borderWidth so stroke is fully inside)
-  ctx.beginPath();
-  ctx.arc(cx, cy, r - borderWidth / 2, 0, Math.PI * 2);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = borderWidth;
+  // 3. Thin white border stroke
+  ctx.strokeStyle = "rgba(255,255,255,0.6)";
+  ctx.lineWidth = 2;
   ctx.stroke();
 
   const texture = new THREE.CanvasTexture(canvas);
