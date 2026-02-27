@@ -6,5 +6,6 @@ db-dtypes>=1.2.0
 google-cloud-aiplatform>=1.60.0
 google-genai>=1.33.0
 gradio_client>=1.0.0
+google-cloud-spanner>=3.40.0
 pydantic==2.11.7
 pydantic-settings>=2.0.0

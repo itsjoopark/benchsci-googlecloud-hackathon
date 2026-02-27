@@ -8,7 +8,7 @@ from google.genai import types as genai_types
 from gradio_client import Client
 
 from backend.config import settings
-from backend.models.gemini import ExtractedEntity
+from backend.models.gemini import ExtractedEntity, ExtractedEntityPair
 
 logger = logging.getLogger(__name__)
 _fallback_client: genai.Client | None = None
@@ -148,3 +148,111 @@ async def extract_entity(query: str) -> ExtractedEntity:
         logger.warning("App extraction failed for query=%r; using fallback: %s", query, exc)
 
     return await _extract_entity_via_fallback(query)
+
+
+# ---------------------------------------------------------------------------
+# Gemini function-calling based intent detection
+# ---------------------------------------------------------------------------
+
+_SEARCH_ENTITY_FUNC = genai_types.FunctionDeclaration(
+    name="search_entity",
+    description=(
+        "Search for a single biomedical entity (gene, disease, drug, pathway, "
+        "or protein) and show its neighborhood graph."
+    ),
+    parameters_json_schema={
+        "type": "object",
+        "properties": {
+            "entity_name": {
+                "type": "string",
+                "description": "The canonical / most common name of the biomedical entity",
+            },
+            "entity_type": {
+                "type": "string",
+                "enum": ["gene", "disease", "drug", "pathway", "protein"],
+                "description": "The type of the biomedical entity",
+            },
+        },
+        "required": ["entity_name", "entity_type"],
+    },
+)
+
+_FIND_SHORTEST_PATH_FUNC = genai_types.FunctionDeclaration(
+    name="find_shortest_path",
+    description=(
+        "Find the shortest path connecting two biomedical entities in the "
+        "knowledge graph. Use when the user mentions two entities and wants to "
+        "understand their connection or relationship."
+    ),
+    parameters_json_schema={
+        "type": "object",
+        "properties": {
+            "entity1_name": {
+                "type": "string",
+                "description": "Canonical name of the first entity",
+            },
+            "entity1_type": {
+                "type": "string",
+                "enum": ["gene", "disease", "drug", "pathway", "protein"],
+                "description": "Type of the first entity",
+            },
+            "entity2_name": {
+                "type": "string",
+                "description": "Canonical name of the second entity",
+            },
+            "entity2_type": {
+                "type": "string",
+                "enum": ["gene", "disease", "drug", "pathway", "protein"],
+                "description": "Type of the second entity",
+            },
+        },
+        "required": ["entity1_name", "entity1_type", "entity2_name", "entity2_type"],
+    },
+)
+
+_BIOMEDICAL_TOOLS = genai_types.Tool(
+    function_declarations=[_SEARCH_ENTITY_FUNC, _FIND_SHORTEST_PATH_FUNC],
+)
+
+_SYSTEM_INSTRUCTION = (
+    "You are a biomedical entity parser. The user will provide a query about "
+    "biomedical entities. Call the appropriate function based on whether the user "
+    "is searching for one entity or looking for a connection between two entities. "
+    "Always use the most common canonical name for each entity."
+)
+
+
+async def extract_query_intent(query: str) -> tuple[str, dict]:
+    """Use Gemini function calling to determine query intent.
+
+    Returns ``(function_name, arguments)`` where *function_name* is either
+    ``"search_entity"`` or ``"find_shortest_path"`` and *arguments* is the
+    dict of parameters chosen by Gemini.
+    """
+    client = _get_fallback_client()
+
+    response = await asyncio.to_thread(
+        client.models.generate_content,
+        model=settings.GEMINI_OVERVIEW_MODEL,
+        contents=[
+            genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text=query)],
+            )
+        ],
+        config=genai_types.GenerateContentConfig(
+            temperature=0.0,
+            max_output_tokens=200,
+            tools=[_BIOMEDICAL_TOOLS],
+            system_instruction=_SYSTEM_INSTRUCTION,
+            thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
+        ),
+    )
+
+    # Extract the function call from the response
+    for candidate in response.candidates or []:
+        for part in candidate.content.parts or []:
+            if part.function_call:
+                return (part.function_call.name, dict(part.function_call.args))
+
+    raise ValueError("Gemini did not return a function call")

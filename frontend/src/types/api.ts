@@ -6,6 +6,8 @@ export interface JsonNode {
   size?: number;
   is_expanded?: boolean;
   metadata: Record<string, unknown>;
+  x?: number;
+  y?: number;
 }
 
 export interface JsonEvidence {
@@ -38,6 +40,7 @@ export interface JsonGraphPayload {
   nodes: JsonNode[];
   edges: JsonEdge[];
   message?: string;
+  path_node_ids?: string[];
 }
 
 export interface OverviewEntityPayload {

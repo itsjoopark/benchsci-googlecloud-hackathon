@@ -465,6 +465,29 @@
   animation: query-spin 0.7s linear infinite;
 }
 
+/* ── Share toast ── */
+
+.share-toast {
+  position: absolute;
+  top: var(--space-md);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  padding: var(--space-xs) var(--space-md);
+  background: rgba(74, 144, 217, 0.95);
+  color: #fff;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  backdrop-filter: blur(4px);
+  animation: share-toast-in 0.2s ease-out;
+}
+
+@keyframes share-toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
 /* ── Expand error banner ── */
 
 .expand-error-banner {

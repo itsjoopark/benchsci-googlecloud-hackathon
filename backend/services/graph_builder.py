@@ -146,6 +146,69 @@ def build_graph_payload(
     )
 
 
+def build_path_graph_payload(
+    path_entity_ids: list[str],
+    path_segments: list[dict],
+    entity_details: dict[str, dict],
+    paper_details: dict[str, dict],
+) -> JsonGraphPayload:
+    """Build a JsonGraphPayload representing a shortest-path result."""
+    nodes: list[JsonNode] = []
+    for eid in path_entity_ids:
+        detail = entity_details.get(eid)
+        if not detail:
+            continue
+        etype = detail.get("type")
+        nodes.append(JsonNode(
+            id=eid,
+            name=detail.get("mention", eid),
+            type=_biolink_type(etype),
+            color=_entity_color(etype),
+            size=1.2,
+            is_expanded=True,
+            metadata={"entity_id": eid},
+        ))
+
+    edges: list[JsonEdge] = []
+    for seg in path_segments:
+        source = seg["from"]
+        target = seg["to"]
+        rel_type = seg.get("relation_type", "")
+        pmids = seg.get("pmids", [])
+
+        evidence_items: list[JsonEvidence] = []
+        for pmid in pmids:
+            paper = paper_details.get(pmid, {})
+            evidence_items.append(JsonEvidence(
+                pmid=pmid,
+                snippet=paper.get("title", ""),
+                pub_year=paper.get("year", 0),
+                source="PubMed",
+            ))
+
+        edge_id = f"{source}--{target}--{rel_type}"
+        edges.append(JsonEdge(
+            id=edge_id,
+            source=source,
+            target=target,
+            predicate=_predicate(rel_type),
+            label=_display_label(rel_type),
+            color=_entity_color(entity_details.get(target, {}).get("type")),
+            source_db="kg_raw",
+            direction="->",
+            confidence_score=1.0,
+            provenance="literature",
+            evidence=evidence_items,
+        ))
+
+    return JsonGraphPayload(
+        center_node_id=path_entity_ids[0] if path_entity_ids else "",
+        nodes=nodes,
+        edges=edges,
+        path_node_ids=path_entity_ids,
+    )
+
+
 def build_not_found_response(query: str) -> JsonGraphPayload:
     return JsonGraphPayload(
         center_node_id="",

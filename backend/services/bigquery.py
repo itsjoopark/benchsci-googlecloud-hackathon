@@ -261,3 +261,151 @@ async def fetch_paper_details(pmids: list[str]) -> dict[str, dict]:
         }
         for row in rows
     }
+
+
+async def fetch_edge_pmids(
+    edge_pairs: list[tuple[str, str, str]],
+) -> dict[str, list[str]]:
+    """For each edge on a path, fetch PMIDs from C21_Bioentity_Relationships.
+
+    *edge_pairs* is a list of ``(entity_id1, entity_id2, relation_type)`` tuples.
+
+    Returns a dict keyed by ``"entity_id1--entity_id2--relation_type"`` with up
+    to 5 PMIDs per edge.  Checks both directions (id1,id2) and (id2,id1) since
+    the Spanner graph may traverse edges in either direction.
+    """
+    if not edge_pairs:
+        return {}
+
+    # Build OR conditions for each edge pair, checking both orderings
+    conditions = []
+    for i, (id1, id2, rel) in enumerate(edge_pairs):
+        conditions.append(
+            f"((entity_id1 = @a{i} AND entity_id2 = @b{i} AND relation_type = @r{i}) "
+            f"OR (entity_id1 = @b{i} AND entity_id2 = @a{i} AND relation_type = @r{i}))"
+        )
+
+    where_clause = " OR ".join(conditions)
+    sql = f"""
+    SELECT entity_id1, entity_id2, relation_type,
+           ARRAY_AGG(DISTINCT PMID ORDER BY PMID LIMIT 5) AS pmids
+    FROM {_table("C21_Bioentity_Relationships")}
+    WHERE {where_clause}
+    GROUP BY entity_id1, entity_id2, relation_type
+    """
+
+    params = []
+    for i, (id1, id2, rel) in enumerate(edge_pairs):
+        params.extend([
+            bigquery.ScalarQueryParameter(f"a{i}", "STRING", id1),
+            bigquery.ScalarQueryParameter(f"b{i}", "STRING", id2),
+            bigquery.ScalarQueryParameter(f"r{i}", "STRING", rel),
+        ])
+
+    job_config = bigquery.QueryJobConfig(query_parameters=params)
+    client = _get_client()
+
+    rows = await asyncio.to_thread(
+        lambda: list(client.query(sql, job_config=job_config).result())
+    )
+
+    # Build result keyed by the original edge pair key (from the path)
+    edge_pair_set = {(id1, id2, rel) for id1, id2, rel in edge_pairs}
+    result: dict[str, list[str]] = {}
+    for row in rows:
+        eid1 = row["entity_id1"]
+        eid2 = row["entity_id2"]
+        rtype = row["relation_type"]
+        pmids = [str(p) for p in row["pmids"]] if row["pmids"] else []
+
+        # Match back to the original edge direction from the path
+        if (eid1, eid2, rtype) in edge_pair_set:
+            key = f"{eid1}--{eid2}--{rtype}"
+        else:
+            key = f"{eid2}--{eid1}--{rtype}"
+        result[key] = pmids
+
+    return result
+
+
+async def find_neighbor_ids(entity_ids: list[str]) -> dict[str, list[dict]]:
+    """Batch 1-hop neighbor lookup for BFS pathfinding.
+
+    Given a list of entity IDs, returns a dict mapping each source entity ID
+    to its list of neighbors: ``{src: [{neighbor_id, relation_type, pmids}]}``.
+    """
+    if not entity_ids:
+        return {}
+
+    sql = f"""
+    WITH rels AS (
+      SELECT
+        CASE WHEN entity_id1 IN UNNEST(@ids) THEN entity_id1
+             ELSE entity_id2 END AS src,
+        CASE WHEN entity_id1 IN UNNEST(@ids) THEN entity_id2
+             ELSE entity_id1 END AS nbr,
+        relation_type,
+        PMID
+      FROM {_table("C21_Bioentity_Relationships")}
+      WHERE entity_id1 IN UNNEST(@ids) OR entity_id2 IN UNNEST(@ids)
+    )
+    SELECT src, nbr, relation_type,
+           ARRAY_AGG(DISTINCT PMID ORDER BY PMID LIMIT 5) AS pmids
+    FROM rels
+    GROUP BY src, nbr, relation_type
+    """
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ArrayQueryParameter("ids", "STRING", entity_ids),
+        ]
+    )
+    client = _get_client()
+
+    rows = await asyncio.to_thread(
+        lambda: list(client.query(sql, job_config=job_config).result())
+    )
+
+    result: dict[str, list[dict]] = {}
+    for row in rows:
+        src = row["src"]
+        if src not in result:
+            result[src] = []
+        result[src].append({
+            "neighbor_id": row["nbr"],
+            "relation_type": row["relation_type"],
+            "pmids": [str(p) for p in row["pmids"]] if row["pmids"] else [],
+        })
+    return result
+
+
+async def find_entities_by_ids(entity_ids: list[str]) -> dict[str, dict]:
+    """Batch entity detail lookup: entity_id -> {entity_id, type, mention}."""
+    if not entity_ids:
+        return {}
+
+    sql = f"""
+    SELECT EntityId, Type, Mention
+    FROM {_table("C23_BioEntities")}
+    WHERE EntityId IN UNNEST(@ids)
+    """
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ArrayQueryParameter("ids", "STRING", entity_ids),
+        ]
+    )
+    client = _get_client()
+
+    rows = await asyncio.to_thread(
+        lambda: list(client.query(sql, job_config=job_config).result())
+    )
+
+    return {
+        row["EntityId"]: {
+            "entity_id": row["EntityId"],
+            "type": row["Type"],
+            "mention": row["Mention"],
+        }
+        for row in rows
+    }
