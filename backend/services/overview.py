@@ -507,11 +507,18 @@ def _prompt_text(context: SelectionContext, rag_chunks: list[RagChunk], history:
             relation_lines.append(
                 f"- {source_name} -> {other_name}: {rel_edge.label or rel_edge.predicate} (score={rel_edge.score or 0:.2f})"
             )
-    selection_instruction = (
-        "Explain how the center node is related to all currently visible connected nodes, summarizing the strongest links."
-        if context.center_overview
-        else "Explain why this specific selected connection exists."
-    )
+
+    if path and len(path) >= 2:
+        path_names = " → ".join(p.name for p in path)
+        selection_instruction = (
+            f"Explain the full multi-hop exploration path: {path_names}. "
+            "Describe how each entity connects to the next, what the overall biological or clinical significance of this chain is, "
+            "and what insight can be drawn by traversing this entire sequence."
+        )
+    elif context.center_overview:
+        selection_instruction = "Explain how the center node is related to all currently visible connected nodes, summarizing the strongest links."
+    else:
+        selection_instruction = "Explain why this specific selected connection exists."
 
     return f"""
 You are a biomedical knowledge graph explainer.
