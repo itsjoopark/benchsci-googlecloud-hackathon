@@ -603,15 +603,33 @@ def stream_deep_think_chat_events(request: DeepThinkChatRequest) -> Iterator[str
     except Exception as exc:
         logger.warning("Reviewer failed: %s", exc)
 
-    # Step 6 — extract actually-cited papers from the response text
-    cited_indices: set[int] = set()
+    # Step 6 — extract cited papers, ordered by first appearance in the text
+    seen: set[int] = set()
+    appearance_order: list[int] = []  # 0-based indices in order of first mention
     for m in re.finditer(r"\[(\d+(?:[,\s]*\d+)*)\]", full_text):
         for num_str in m.group(1).split(","):
             num_str = num_str.strip()
             if num_str.isdigit():
                 idx = int(num_str) - 1  # 0-based
-                if 0 <= idx < len(paper_meta):
-                    cited_indices.add(idx)
-    cited_papers = [{"index": i + 1, **paper_meta[i]} for i in sorted(cited_indices)]
+                if 0 <= idx < len(paper_meta) and idx not in seen:
+                    seen.add(idx)
+                    appearance_order.append(idx)
 
-    yield _sse("done", {"text": full_text, "confidence": confidence, "cited_papers": cited_papers})
+    # old 1-based → new sequential 1-based by appearance order
+    remap = {old_idx + 1: new_idx + 1 for new_idx, old_idx in enumerate(appearance_order)}
+
+    def _renumber(match: re.Match) -> str:
+        inner = match.group(1)
+        parts = []
+        for num_str in inner.split(","):
+            num_str = num_str.strip()
+            if num_str.isdigit():
+                parts.append(str(remap.get(int(num_str), int(num_str))))
+            else:
+                parts.append(num_str)
+        return "[" + ", ".join(parts) + "]"
+
+    renumbered_text = re.sub(r"\[(\d+(?:[,\s]*\d+)*)\]", _renumber, full_text)
+    cited_papers = [{"index": new_idx + 1, **paper_meta[old_idx]} for new_idx, old_idx in enumerate(appearance_order)]
+
+    yield _sse("done", {"text": renumbered_text, "confidence": confidence, "cited_papers": cited_papers})

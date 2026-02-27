@@ -245,11 +245,15 @@ function MessageBubble({
     [message.content, message.role]
   );
 
+  // Use per-message cited papers (renumbered to match the text) when available,
+  // falling back to the global papers array for older messages without cited data.
+  const citationPapers = message.citedPapers ?? papers;
+
   // Only apply inline citation rendering for completed (non-streaming) assistant
   // responses that have papers loaded and are not the welcome message.
   const bodyContent =
-    message.role === "assistant" && !message.streaming && papers.length > 0 && !isWelcome
-      ? renderWithCitations(displayText, papers)
+    message.role === "assistant" && !message.streaming && citationPapers.length > 0 && !isWelcome
+      ? renderWithCitations(displayText, citationPapers)
       : displayText;
 
   const isThinking = message.role === "assistant" && message.streaming && !message.content;
