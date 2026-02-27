@@ -24,6 +24,8 @@ interface Props {
   onEdgeSelect: (edgeId: string) => void;
   disabledNodeIds: Set<string>;
   fitRequest: number;
+  pathNodeIds?: string[];
+  onPositionsUpdate?: (positions: Map<string, { x: number; y: number }>) => void;
 }
 
 interface SimNode extends SimulationNodeDatum {
@@ -159,6 +161,8 @@ export default function GraphCanvas({
   onEdgeSelect,
   disabledNodeIds,
   fitRequest,
+  pathNodeIds,
+  onPositionsUpdate,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
@@ -171,6 +175,8 @@ export default function GraphCanvas({
   const onNodeExpandRef = useRef(onNodeExpand);
   const onEdgeSelectRef = useRef(onEdgeSelect);
   const disabledNodeIdsRef = useRef(disabledNodeIds);
+  const pathNodeIdsRef = useRef(pathNodeIds);
+  const onPositionsUpdateRef = useRef(onPositionsUpdate);
 
   // Position persistence for smooth incremental updates (expand)
   const nodePositionsRef = useRef<Map<string, { x: number; y: number }>>(
@@ -185,6 +191,8 @@ export default function GraphCanvas({
   onNodeExpandRef.current = onNodeExpand;
   onEdgeSelectRef.current = onEdgeSelect;
   disabledNodeIdsRef.current = disabledNodeIds;
+  pathNodeIdsRef.current = pathNodeIds;
+  onPositionsUpdateRef.current = onPositionsUpdate;
 
   useEffect(() => {
     if (!containerRef.current || entities.length === 0) return;
@@ -228,18 +236,24 @@ export default function GraphCanvas({
     renderer.setPixelRatio(window.devicePixelRatio);
     container.appendChild(renderer.domElement);
 
+    // Detect if all entities come with pre-computed layout positions
+    const hasBackendLayout = entities.every(e => e.layoutX != null && e.layoutY != null);
+
     // Build simulation data — restore saved positions for existing nodes
     const simNodes: SimNode[] = entities.map((e) => {
       const savedPos = nodePositionsRef.current.get(e.id);
+      // Priority: saved position > backend layout > none
+      const posX = savedPos?.x ?? (hasBackendLayout ? e.layoutX : undefined);
+      const posY = savedPos?.y ?? (hasBackendLayout ? e.layoutY : undefined);
       return {
         id: e.id,
         label: e.name,
         entityType: e.type,
         color: e.color ?? ENTITY_COLORS[e.type],
         size: e.size ?? 1,
-        // New nodes (no saved position) start invisible during expansions
-        animProgress: (isInitialRenderRef.current || savedPos) ? 1 : 0,
-        ...(savedPos ? { x: savedPos.x, y: savedPos.y } : {}),
+        // Backend-positioned nodes appear instantly (no fade-in)
+        animProgress: (isInitialRenderRef.current || savedPos || hasBackendLayout) ? 1 : 0,
+        ...(posX != null && posY != null ? { x: posX, y: posY, fx: hasBackendLayout ? posX : undefined, fy: hasBackendLayout ? posY : undefined } : {}),
       };
     });
 
@@ -321,6 +335,19 @@ export default function GraphCanvas({
       }
     }
     const expandedNodeSet = new Set(expandedNodes);
+
+    // Path mode: compute edges connecting consecutive path nodes
+    const currentPathNodeIds = pathNodeIdsRef.current ?? [];
+    const pathNodeSet = new Set(currentPathNodeIds);
+    const pathEdgeIds = new Set<string>();
+    if (currentPathNodeIds.length > 1) {
+      for (let i = 1; i < currentPathNodeIds.length; i++) {
+        for (const edgeId of bfsPathEdges(currentPathNodeIds[i - 1], currentPathNodeIds[i])) {
+          pathEdgeIds.add(edgeId);
+        }
+      }
+    }
+    const isPathMode = currentPathNodeIds.length > 1;
 
     // Create edge lines first (render behind nodes)
     const edgeMeshes: SimLink[] = [];
@@ -445,14 +472,8 @@ export default function GraphCanvas({
       .force("collide", forceCollide((d) => NODE_RADIUS * (d.size ?? 1) * 2.5))
       .alphaDecay(0.02);
 
-    // Lower alpha for incremental updates so existing nodes barely move
-    const isIncremental = !isInitialRenderRef.current;
-    if (isIncremental) {
-      simulation.alpha(0.3);
-    }
-    isInitialRenderRef.current = false;
-
-    simulation.on("tick", () => {
+    // Shared tick handler — updates Three.js positions from simulation data
+    const tickHandler = () => {
       simNodes.forEach((node) => {
         const r = NODE_RADIUS * node.size;
         if (node.x !== undefined && node.y !== undefined) {
@@ -494,6 +515,7 @@ export default function GraphCanvas({
 
           const isSelected = link.id === selectedEdgeIdRef.current;
           const isExpansionPath = expansionEdgeIds.has(link.id);
+          const isOnPath = isPathMode && pathEdgeIds.has(link.id);
           const eitherDisabled = disabledNodeIdsRef.current.has(s.id) || disabledNodeIdsRef.current.has(t.id);
           const mat = link.line.material as THREE.LineBasicMaterial;
           // Fade-in edges connected to new nodes
@@ -502,8 +524,16 @@ export default function GraphCanvas({
           if (isSelected) {
             mat.color.setHex(0x4A90D9);
             mat.opacity = 1 * edgeEased;
+          } else if (isOnPath) {
+            // Path mode: highlight path edges in bold black
+            mat.color.setHex(0x000000);
+            mat.opacity = 1.0 * edgeEased;
           } else if (isExpansionPath) {
             mat.opacity = 0; // glow mesh replaces thin line
+          } else if (isPathMode) {
+            // Path mode: dim non-path edges
+            mat.color.setHex(EDGE_COLOR);
+            mat.opacity = 0.15 * edgeEased;
           } else if (eitherDisabled) {
             mat.color.setHex(0x5a6570);
             mat.opacity = 0.35 * edgeEased;
@@ -523,7 +553,33 @@ export default function GraphCanvas({
           }
         }
       });
-    });
+
+      // Expose positions to parent for snapshot saving (once per tick, after all nodes updated)
+      onPositionsUpdateRef.current?.(nodePositionsRef.current);
+    };
+
+    simulation.on("tick", tickHandler);
+
+    // When backend provides positions: stop simulation, apply one tick manually, then release pins
+    if (hasBackendLayout) {
+      simulation.alpha(0).stop();
+      simulation.tick(); // advance internal state so d3 resolves link references
+      tickHandler();     // manually sync Three.js positions (simulation.tick() doesn't fire events)
+      // Release fixed positions after a short delay so users can still drag nodes
+      setTimeout(() => {
+        simNodes.forEach((node) => {
+          node.fx = undefined;
+          node.fy = undefined;
+        });
+      }, 100);
+    } else {
+      // Lower alpha for incremental updates so existing nodes barely move
+      const isIncremental = !isInitialRenderRef.current;
+      if (isIncremental) {
+        simulation.alpha(0.3);
+      }
+    }
+    isInitialRenderRef.current = false;
 
     // Interaction state
     const raycaster = new THREE.Raycaster();
@@ -796,6 +852,7 @@ export default function GraphCanvas({
           const isExpansionPath = expansionEdgeIds.has(link.id);
           const eitherDisabled = disabledNodeIdsRef.current.has(s.id) || disabledNodeIdsRef.current.has(t.id);
           const glowMat = link.glowMesh.material as THREE.MeshBasicMaterial;
+          const isOnPath = isPathMode && pathEdgeIds.has(link.id);
 
           if (isSelected) {
             link.glowMesh.visible = true;
@@ -809,6 +866,10 @@ export default function GraphCanvas({
             link.glowMesh.visible = true;
             glowMat.color.setHex(0x333333);
             glowMat.opacity = eitherDisabled ? 0.4 : 0.85;
+          } else if (isOnPath) {
+            link.glowMesh.visible = true;
+            glowMat.color.setHex(0x000000);
+            glowMat.opacity = 0.3;
           } else {
             link.glowMesh.visible = false;
           }

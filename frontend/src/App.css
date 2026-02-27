@@ -197,11 +197,31 @@
   }
 }
 
-.pane-top-section {
+.right-pane-expand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transition: background 0.15s;
+}
+
+.right-pane-expand:hover {
+  background: var(--color-bg-elevated);
+}
+
+.right-pane-inner {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  flex: 1;
   min-height: 0;
+  overflow: hidden;
+  position: relative;
 }
 
 /* ── Floating edge tabs for panel collapse/expand ── */
@@ -260,26 +280,22 @@
   height: 6px;
   cursor: row-resize;
   background: var(--color-border);
-  position: relative;
+}
+
+.pane-top-section {
+  flex-shrink: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s;
-  z-index: 10;
+  flex-direction: column;
+  max-height: 45%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: max-height 0.3s ease, opacity 0.2s ease;
 }
-
-.pane-resize-handle::after {
-  content: "";
-  width: 32px;
-  height: 3px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.18);
+.pane-top-section.section-collapsed {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
   pointer-events: none;
-}
-
-.pane-resize-handle:hover,
-.pane-resize-handle:active {
-  background: rgba(74, 144, 217, 0.25);
 }
 
 .right-pane-content {
@@ -304,6 +320,25 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* Entity / edge panels — scrollable middle zone, always visible when stacked */
+.right-pane-middle {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: flex 0.3s ease, max-height 0.3s ease, opacity 0.2s ease;
+}
+.right-pane-middle.section-collapsed {
+  flex: 0;
+  max-height: 48px;
+  overflow: hidden;
+}
+
+/* Unpack This panel expands smoothly when open */
+.right-pane-inner .dt-panel--open {
+  transition: flex 0.3s ease;
 }
 
 /* ── Left pane header ── */
@@ -346,7 +381,6 @@
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-md);
-  border-bottom: 1px solid var(--color-border);
   background: var(--graph-bg);
   z-index: 10;
 }
@@ -360,15 +394,27 @@
   justify-content: center;
   width: 32px;
   height: 32px;
-  background: var(--color-bg-surface);
-  border: 1px solid var(--color-border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
   color: var(--color-text-primary);
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .sidebar-toggle:hover {
-  background: var(--color-bg-elevated);
+  background: var(--glass-card-bg);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .sidebar-toggle {
+    background: rgba(255, 255, 255, 0.92);
+  }
+  .sidebar-toggle:hover {
+    background: rgba(255, 255, 255, 0.95);
+  }
 }
 
 /* ── Query loading overlay ── */
@@ -483,6 +529,29 @@
   border-top-color: var(--color-gene);
   border-radius: 50%;
   animation: query-spin 0.7s linear infinite;
+}
+
+/* ── Share toast ── */
+
+.share-toast {
+  position: absolute;
+  top: var(--space-md);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  padding: var(--space-xs) var(--space-md);
+  background: rgba(74, 144, 217, 0.95);
+  color: #fff;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  backdrop-filter: blur(4px);
+  animation: share-toast-in 0.2s ease-out;
+}
+
+@keyframes share-toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 /* ── Expand error banner ── */

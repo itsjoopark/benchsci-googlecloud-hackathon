@@ -16,6 +16,8 @@ class JsonNode(BaseModel):
     size: float | None = None
     is_expanded: bool | None = None
     metadata: dict[str, object]
+    x: float | None = None
+    y: float | None = None
 
 
 class JsonEdge(BaseModel):
@@ -41,3 +43,4 @@ class JsonGraphPayload(BaseModel):
     nodes: list[JsonNode]
     edges: list[JsonEdge]
     message: str | None = None
+    path_node_ids: list[str] | None = None

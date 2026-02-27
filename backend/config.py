@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     OVERVIEW_EMBEDDING_MODEL_FALLBACK: str = "text-embedding-005"
     VERTEX_VECTOR_ENDPOINT_RESOURCE: str = ""
     VERTEX_VECTOR_DEPLOYED_INDEX_ID: str = ""
+    GEMINI_DEEP_THINK_MODEL: str = "gemini-2.5-pro"
+    SEMANTIC_SCHOLAR_API_KEY: str = ""
     OVERVIEW_HISTORY_LIMIT: int = 3
     OVERVIEW_RAG_TOP_K: int = 20
     OVERVIEW_RAG_FETCH_K: int = 150
@@ -42,6 +44,10 @@ class Settings(BaseSettings):
         "https://benchspark-frontend-s7fuxsjnxq-uc.a.run.app",
     ]
     CORS_ORIGIN_REGEX: str = r"^https://benchspark-frontend(-[a-z0-9-]+)?\.us-central1\.run\.app$"
+
+    # Cloud Spanner Graph (shortest-path traversal)
+    SPANNER_INSTANCE_ID: str = "benchspark-graph"
+    SPANNER_DATABASE_ID: str = "biograph"
 
     # ORKG (Open Research Knowledge Graph) evidence enrichment
     ORKG_BQ_TABLE: str = "orkg_contributions"

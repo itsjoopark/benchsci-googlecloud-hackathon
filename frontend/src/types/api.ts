@@ -6,6 +6,8 @@ export interface JsonNode {
   size?: number;
   is_expanded?: boolean;
   metadata: Record<string, unknown>;
+  x?: number;
+  y?: number;
 }
 
 export interface JsonEvidence {
@@ -38,6 +40,7 @@ export interface JsonGraphPayload {
   nodes: JsonNode[];
   edges: JsonEdge[];
   message?: string;
+  path_node_ids?: string[];
 }
 
 export interface OverviewEntityPayload {
@@ -93,4 +96,55 @@ export interface OverviewCitation {
   id: string;
   kind: "evidence" | "rag" | "orkg";
   label: string;
+}
+
+// Deep Think types
+export interface DeepThinkPathNodePayload {
+  entity_id: string;
+  entity_name: string;
+  entity_type: string;
+  edge_predicate?: string;
+}
+
+export interface DeepThinkEdgeEvidencePayload {
+  pmid?: string;
+  title?: string;
+  snippet: string;
+}
+
+export interface DeepThinkEdgePayload {
+  source: string;
+  target: string;
+  predicate: string;
+  evidence: DeepThinkEdgeEvidencePayload[];
+}
+
+export interface DeepThinkRequestPayload {
+  path: DeepThinkPathNodePayload[];
+  edges: DeepThinkEdgePayload[];
+}
+
+export interface DeepThinkPaper {
+  index?: number;
+  pmid?: string;
+  title: string;
+  year?: number;
+  abstract_snippet?: string;
+}
+
+export interface DeepThinkConfidence {
+  score: number;
+  reasoning: string;
+}
+
+export interface DeepThinkChatMessagePayload {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface DeepThinkChatRequestPayload {
+  path: DeepThinkPathNodePayload[];
+  edges: DeepThinkEdgePayload[];
+  question: string;
+  messages: DeepThinkChatMessagePayload[];
 }

@@ -245,7 +245,33 @@ def _build_selection_context(request: OverviewStreamRequest) -> SelectionContext
         chosen = _pick_best_edge(node_edges)
 
     if chosen is None:
-        raise ValueError("Unable to resolve a connection edge for selected node")
+        # Fallback: generate overview from node metadata alone (no edge required)
+        node_entity = entities.get(node_id)
+        fallback_edge = OverviewEdge(
+            id=f"fallback:{node_id}",
+            source=node_id,
+            target=center_id,
+            predicate="related_to",
+            label="related to",
+            score=None,
+            provenance="",
+            sourceDb="",
+            evidence=[],
+            paper_count=None,
+            trial_count=None,
+            patent_count=None,
+            cooccurrence_score=None,
+        )
+        return SelectionContext(
+            selection_key=f"node:{node_id}",
+            selection_type="node",
+            edge=fallback_edge,
+            source=node_entity,
+            target=entities.get(center_id),
+            related_edges=[],
+            center_overview=False,
+            entity_lookup=entities,
+        )
 
     source = entities.get(chosen.source)
     target = entities.get(chosen.target)

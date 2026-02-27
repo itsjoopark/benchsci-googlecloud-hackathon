@@ -59,7 +59,7 @@ multihopwanderer-*.json
 service-account-key.json
 
 # Large dataset files
-data
+/data
 CLAUDE.md
 rdf-export-orkg.nt
 data/mappings/chebi_to_drugbank.json

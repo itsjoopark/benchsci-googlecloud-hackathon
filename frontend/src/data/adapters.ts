@@ -28,6 +28,8 @@ export function jsonNodeToEntity(node: JsonNode): Entity {
     metadata,
     color: node.color,
     size: node.size,
+    layoutX: node.x,
+    layoutY: node.y,
   };
 }
 

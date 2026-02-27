@@ -78,3 +78,28 @@
   background: rgba(0, 0, 0, 0.05);
   color: var(--color-text-primary, #333);
 }
+
+.toolbar-share-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--color-gene, #4A90D9);
+  background: transparent;
+  border: 1px solid var(--color-gene, #4A90D9);
+  border-radius: 12px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.toolbar-share-btn:hover {
+  background: rgba(74, 144, 217, 0.08);
+}
+
+.toolbar-share-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
