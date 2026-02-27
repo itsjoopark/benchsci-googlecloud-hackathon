@@ -46,7 +46,8 @@
   min-height: 104px;
   padding: var(--space-md);
   position: relative;
-  overflow: visible;
+  max-height: 260px;
+  overflow-y: auto;
   transition: max-height 220ms ease;
 }
 
@@ -235,6 +236,16 @@
 .ai-overview-citation.evidence {
   border-color: rgba(74, 144, 217, 0.4);
   color: #2c5f91;
+}
+
+a.ai-overview-citation {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+a.ai-overview-citation:hover {
+  background: linear-gradient(180deg, rgba(239, 247, 255, 0.97), rgba(220, 238, 255, 0.95));
+  border-color: rgba(44, 95, 145, 0.6);
 }
 
 .ai-overview-citation.rag {

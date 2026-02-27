@@ -251,11 +251,27 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
           {parsedCitationLabels.length > 0 && (
             <div className="ai-overview-citations">
               <h4 className="ai-overview-citations-label">Citations</h4>
-              {parsedCitationLabels.slice(0, 12).map((label) => (
-                <span key={label} className="ai-overview-citation evidence">
-                  {label}
-                </span>
-              ))}
+              {parsedCitationLabels.slice(0, 12).map((label) => {
+                const pmidMatch = label.match(/^PMID:(\d+)$/i);
+                if (pmidMatch) {
+                  return (
+                    <a
+                      key={label}
+                      href={`https://pubmed.ncbi.nlm.nih.gov/${pmidMatch[1]}/`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ai-overview-citation evidence"
+                    >
+                      {label}
+                    </a>
+                  );
+                }
+                return (
+                  <span key={label} className="ai-overview-citation evidence">
+                    {label}
+                  </span>
+                );
+              })}
             </div>
           )}
 
