@@ -12,9 +12,10 @@
   border-top: 1px solid var(--glass-border);
 }
 
-/* When open the panel takes a fixed height so the middle section shrinks */
+/* When open the panel grows to fill all remaining space in the right pane */
 .dt-panel--open {
-  height: 360px;
+  flex: 1;
+  min-height: 0;
 }
 
 /* ── Toggle header button ───────────────────────────────────────── */
@@ -208,7 +209,6 @@
 
 /* ── Inline citation hover ──────────────────────────────────────── */
 .dt-inline-cite {
-  position: relative;
   display: inline;
 }
 
@@ -217,43 +217,28 @@
   font-size: 0.85em;
   cursor: pointer;
   font-weight: 600;
-  text-decoration: none;
   border-bottom: 1px dotted currentColor;
 }
 
+/* Popup uses position:fixed (set via inline style) so it escapes
+   any overflow:auto ancestor and never gets clipped by the panel. */
 .dt-inline-cite__popup {
-  display: none;
-  position: absolute;
-  bottom: calc(100% + 5px);
-  left: 50%;
+  position: fixed;
+  /* bottom + left are set via inline style from JS */
   transform: translateX(-50%);
-  z-index: 60;
+  z-index: 1000;
   min-width: 240px;
   max-width: 300px;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   background: #fff;
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.13);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
   padding: 8px 10px;
-  /* pointer-events must be auto so links inside are clickable */
-  pointer-events: auto;
-}
-
-/* Invisible bridge that fills the 5px gap between popup bottom and trigger,
-   keeping the hover chain alive as the cursor moves between them. */
-.dt-inline-cite__popup::before {
-  content: "";
-  position: absolute;
-  bottom: -6px;
-  left: 0;
-  right: 0;
-  height: 6px;
-}
-
-.dt-inline-cite:hover .dt-inline-cite__popup {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
 }
 
 .dt-inline-cite__paper {

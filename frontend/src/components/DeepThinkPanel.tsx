@@ -49,7 +49,9 @@ function ConfidenceBadge({ confidence }: { confidence: DeepThinkConfidence }) {
   );
 }
 
-/** Inline citation: renders a hoverable popup for a single [N] or ([N]) reference. */
+/** Inline citation: renders a hoverable popup for a single [N] or ([N]) reference.
+ *  Uses position:fixed so the popup escapes any overflow:hidden/auto ancestors.
+ */
 function InlineCitation({
   numbers,
   papers,
@@ -57,33 +59,77 @@ function InlineCitation({
   numbers: number[];
   papers: DeepThinkPaper[];
 }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ bottom: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLSpanElement>(null);
+  const popupRef = useRef<HTMLSpanElement>(null);
+
   const refs = numbers.map((n) => papers[n - 1]).filter(Boolean);
   const label = `[${numbers.join(", ")}]`;
 
-  if (!refs.length) {
-    return <span>{label}</span>;
-  }
+  if (!refs.length) return <span>{label}</span>;
+
+  const POPUP_W = 270; // approximate popup width for clamping
+
+  const handleTriggerEnter = () => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    // Horizontal centre, clamped to stay inside the viewport
+    let left = r.left + r.width / 2;
+    left = Math.min(left, window.innerWidth - POPUP_W / 2 - 8);
+    left = Math.max(left, POPUP_W / 2 + 8);
+    // Always show above; bottom = distance from trigger top to viewport bottom
+    const bottom = window.innerHeight - r.top + 6;
+    setPos({ bottom, left });
+    setOpen(true);
+  };
+
+  const handleTriggerLeave = (e: React.MouseEvent) => {
+    if (popupRef.current?.contains(e.relatedTarget as Node)) return;
+    setOpen(false);
+  };
+
+  const handlePopupLeave = (e: React.MouseEvent) => {
+    if (triggerRef.current?.contains(e.relatedTarget as Node)) return;
+    setOpen(false);
+  };
 
   return (
     <span className="dt-inline-cite">
-      <span className="dt-inline-cite__trigger">{label}</span>
-      <span className="dt-inline-cite__popup" role="tooltip">
-        {refs.map((p, i) => (
-          <span key={i} className="dt-inline-cite__paper">
-            {p.pmid ? (
-              <a
-                href={`https://pubmed.ncbi.nlm.nih.gov/${p.pmid}/`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {p.title}{p.year ? ` (${p.year})` : ""}
-              </a>
-            ) : (
-              <span>{p.title}{p.year ? ` (${p.year})` : ""}</span>
-            )}
-          </span>
-        ))}
+      <span
+        ref={triggerRef}
+        className="dt-inline-cite__trigger"
+        onMouseEnter={handleTriggerEnter}
+        onMouseLeave={handleTriggerLeave}
+      >
+        {label}
       </span>
+
+      {open && pos && (
+        <span
+          ref={popupRef}
+          className="dt-inline-cite__popup"
+          role="tooltip"
+          style={{ bottom: pos.bottom, left: pos.left }}
+          onMouseLeave={handlePopupLeave}
+        >
+          {refs.map((p, i) => (
+            <span key={i} className="dt-inline-cite__paper">
+              {p.pmid ? (
+                <a
+                  href={`https://pubmed.ncbi.nlm.nih.gov/${p.pmid}/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {p.title}{p.year ? ` (${p.year})` : ""}
+                </a>
+              ) : (
+                <span>{p.title}{p.year ? ` (${p.year})` : ""}</span>
+              )}
+            </span>
+          ))}
+        </span>
+      )}
     </span>
   );
 }
