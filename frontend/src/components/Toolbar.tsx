@@ -7,7 +7,7 @@ interface Props {
   onReset: () => void;
 }
 
-export default function Toolbar({ canReset, onReset }: Props) {
+export default function Toolbar({ onFit, disabled, canReset, onReset }: Props) {
   return (
     <div className="toolbar">
       {canReset && (
@@ -17,6 +17,17 @@ export default function Toolbar({ canReset, onReset }: Props) {
             <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
           </svg>
           Reset
+        </button>
+      )}
+      {!disabled && (
+        <button className="toolbar-fit-btn" onClick={onFit} title="Fit graph to screen">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 3 21 3 21 9"/>
+            <polyline points="9 21 3 21 3 15"/>
+            <line x1="21" y1="3" x2="14" y2="10"/>
+            <line x1="3" y1="21" x2="10" y2="14"/>
+          </svg>
+          Fit
         </button>
       )}
 
