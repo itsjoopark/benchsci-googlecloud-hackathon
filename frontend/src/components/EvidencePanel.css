@@ -102,7 +102,9 @@
 }
 
 .evidence-card {
-  background: var(--color-bg-elevated);
+  background: var(--glass-card-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: var(--space-md);

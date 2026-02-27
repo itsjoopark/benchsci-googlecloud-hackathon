@@ -452,7 +452,7 @@ export default function DeepThinkPanel({ path, edges, onOpenChange }: Props) {
   );
 
   return (
-    <section className={`dt-panel${isOpen ? " dt-panel--open" : ""}`} aria-label="Unpack This">
+    <section className={`dt-panel${isOpen ? " dt-panel--open" : ""}`} aria-label="Deep Search">
       {/* Collapsible header — always visible */}
       <button
         className="dt-toggle-header"
@@ -470,7 +470,7 @@ export default function DeepThinkPanel({ path, edges, onOpenChange }: Props) {
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
           </span>
-          <h3 className="dt-header__title">Unpack This</h3>
+          <h3 className="dt-header__title">Deep Search</h3>
           <span className="dt-header__chevron" aria-hidden="true">
             <svg
               width="13"

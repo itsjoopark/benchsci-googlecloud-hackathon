@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import type { Entity, GraphEdge, EntityFilterValue } from "./types";
 import { jsonPayloadToGraph } from "./data/adapters";
 import { queryEntity, expandEntity } from "./data/dataService";
@@ -35,13 +35,7 @@ function App() {
   const [selectionHistory, setSelectionHistory] = useState<Entity[]>([]);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
   const [chatExpanded, setChatExpanded] = useState(true);
-  const [overviewRatio, setOverviewRatio] = useState(0.75);
-  const rightPaneRef = useRef<HTMLElement>(null);
-  // Keeps a live copy of overviewRatio so the callback closure stays fresh
-  const overviewRatioLiveRef = useRef(0.75);
-  overviewRatioLiveRef.current = overviewRatio;
-  // Saved ratio before "Unpack This" expands the chat (restored on collapse)
-  const savedOverviewRatioRef = useRef(0.75);
+  const [activeRightSection, setActiveRightSection] = useState<'overview' | 'search' | 'deepthink'>('overview');
 
   // Maps an entity ID that was expanded → the entity/edge IDs that were newly added
   const [expansionSnapshots, setExpansionSnapshots] = useState<
@@ -286,9 +280,10 @@ function App() {
         setSelectedEdge(null);
         setSidebarOpen(true);
         setRightSidebarCollapsed(false);
+        addToSelectionHistory(entity);
       }
     },
-    [entities, selectedEntity, disabledNodeIds]
+    [entities, selectedEntity, disabledNodeIds, addToSelectionHistory]
   );
 
   const handleNodeExpand = useCallback(
@@ -464,40 +459,6 @@ function App() {
     },
     [edges]
   );
-
-  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const pane = rightPaneRef.current;
-    if (!pane) return;
-    const onMouseMove = (ev: MouseEvent) => {
-      const rect = pane.getBoundingClientRect();
-      const ratio = (ev.clientY - rect.top) / rect.height;
-      setOverviewRatio(Math.max(0.15, Math.min(0.90, ratio)));
-    };
-    const onMouseUp = () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-  }, []);
-
-  const handleDeepThinkOpenChange = useCallback((open: boolean) => {
-    if (open) {
-      savedOverviewRatioRef.current = overviewRatioLiveRef.current;
-      setOverviewRatio(0);
-    } else {
-      setOverviewRatio(savedOverviewRatioRef.current);
-    }
-  }, []);
-
-  // Restore overview ratio when the DeepThink panel is hidden (path drops below 2)
-  const deepThinkPanelVisible = selectionHistory.length >= 2;
-  useEffect(() => {
-    if (!deepThinkPanelVisible && overviewRatioLiveRef.current === 0) {
-      setOverviewRatio(savedOverviewRatioRef.current);
-    }
-  }, [deepThinkPanelVisible]);
 
   const handleFit = useCallback(() => setGraphKey((k) => k + 1), []);
 
@@ -904,7 +865,6 @@ function App() {
       {/* Right Pane */}
       {(selectedEdge || selectedEntity || selectionHistory.length >= 2) && (
         <aside
-          ref={rightPaneRef}
           className={`pane pane-right ${rightSidebarCollapsed ? "collapsed" : ""}`}
         >
           {rightSidebarCollapsed ? (
@@ -926,8 +886,8 @@ function App() {
             </button>
           ) : (
             <div className="right-pane-inner">
-              {/* Resizable top: AI Overview */}
-              <div className="pane-top-section" style={{ flex: `0 0 ${overviewRatio * 100}%` }}>
+              {/* Stacked top: AI Overview */}
+              <div className={`pane-top-section${activeRightSection === 'deepthink' ? ' section-collapsed' : ''}`}>
                 <AIOverviewCard
                   key={overviewRequest ? `${overviewRequest.selection_type}:${overviewRequest.edge_id ?? overviewRequest.node_id ?? "none"}` : "overview-none"}
                   request={overviewRequest}
@@ -942,11 +902,8 @@ function App() {
                 />
               </div>
 
-              {/* Drag handle to resize the overview vs content split */}
-              <div className="pane-resize-handle" onMouseDown={handleDividerMouseDown} />
-
               {/* Scrollable middle: entity / edge panels */}
-              <div className="right-pane-middle">
+              <div className={`right-pane-middle${activeRightSection === 'deepthink' ? ' section-collapsed' : ''}`}>
                 {selectedEdge ? (
                   <EvidencePanel
                     edge={selectedEdge}
@@ -966,8 +923,12 @@ function App() {
               </div>
 
               {/* Pinned bottom: Unpack This chatbot */}
-              {selectionHistory.length >= 2 && (
-                <DeepThinkPanel path={deepThinkPath} edges={edges} onOpenChange={handleDeepThinkOpenChange} />
+              {selectionHistory.length >= 1 && (
+                <DeepThinkPanel
+                  path={deepThinkPath}
+                  edges={edges}
+                  onOpenChange={(open) => setActiveRightSection(open ? 'deepthink' : 'overview')}
+                />
               )}
             </div>
           )}

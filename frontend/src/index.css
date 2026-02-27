@@ -51,6 +51,7 @@
   --glass-bg: rgba(255, 255, 255, 0.65);
   --glass-border: rgba(255, 255, 255, 0.35);
   --glass-blur: 16px;
+  --glass-card-bg: rgba(255, 255, 255, 0.45);
 }
 
 *,
