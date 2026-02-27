@@ -104,8 +104,40 @@ function App() {
         }
 
         const { entities: e, edges: ed } = jsonPayloadToGraph(payload);
-        setEntities(e);
-        setEdges(ed);
+
+        // Limit initial connections to 5 neighbors around the seed node
+        const MAX_INITIAL_NODES = 5;
+        const centerId = payload.center_node_id;
+        const seedNode = e.find((ent) => ent.id === centerId);
+        const neighbors = e.filter((ent) => ent.id !== centerId);
+
+        let keptNeighbors: typeof neighbors;
+        if (neighbors.length <= MAX_INITIAL_NODES) {
+          keptNeighbors = neighbors;
+        } else {
+          const scoreMap = new Map<string, number>();
+          for (const edge of ed) {
+            const s = edge.score ?? 0;
+            for (const id of [edge.source, edge.target]) {
+              scoreMap.set(id, Math.max(scoreMap.get(id) ?? 0, s));
+            }
+          }
+          neighbors.sort(
+            (a, b) => (scoreMap.get(b.id) ?? 0) - (scoreMap.get(a.id) ?? 0)
+          );
+          keptNeighbors = neighbors.slice(0, MAX_INITIAL_NODES);
+        }
+
+        const finalEntities = seedNode
+          ? [seedNode, ...keptNeighbors]
+          : keptNeighbors;
+        const keptIds = new Set(finalEntities.map((ent) => ent.id));
+        const finalEdges = ed.filter(
+          (edge) => keptIds.has(edge.source) && keptIds.has(edge.target)
+        );
+
+        setEntities(finalEntities);
+        setEdges(finalEdges);
         setSelectedEdge(null);
         setPath([]);
         setExpandedNodes(new Set());
@@ -197,38 +229,52 @@ function App() {
 
         const { entities: newE, edges: newEd } = jsonPayloadToGraph(payload);
 
-        // Track which entity/edge IDs are truly new (not already in state)
-        setEntities((prev) => {
-          const existingIds = new Set(prev.map((e) => e.id));
-          const newEntityIds = newE
-            .filter((e) => !existingIds.has(e.id))
-            .map((e) => e.id);
-          setExpansionSnapshots((snapshots) => {
-            const next = new Map(snapshots);
-            next.set(nodeId, {
-              entityIds: newEntityIds,
-              edgeIds: [], // filled below
-            });
-            return next;
-          });
-          return mergeEntities(prev, newE);
+        // Cap expansion to 5 truly new nodes, ranked by edge confidence
+        const MAX_EXPANSION_NODES = 5;
+        const existingIds = new Set(entities.map((e) => e.id));
+        const trulyNew = newE.filter((e) => !existingIds.has(e.id));
+
+        let keptNew: typeof trulyNew;
+        if (trulyNew.length <= MAX_EXPANSION_NODES) {
+          keptNew = trulyNew;
+        } else {
+          const scoreMap = new Map<string, number>();
+          for (const edge of newEd) {
+            const s = edge.score ?? 0;
+            for (const id of [edge.source, edge.target]) {
+              scoreMap.set(id, Math.max(scoreMap.get(id) ?? 0, s));
+            }
+          }
+          trulyNew.sort(
+            (a, b) => (scoreMap.get(b.id) ?? 0) - (scoreMap.get(a.id) ?? 0)
+          );
+          keptNew = trulyNew.slice(0, MAX_EXPANSION_NODES);
+        }
+
+        const alreadyExisting = newE.filter((e) => existingIds.has(e.id));
+        const finalEntities = [...alreadyExisting, ...keptNew];
+        const finalNodeIds = new Set([
+          ...existingIds,
+          ...finalEntities.map((e) => e.id),
+        ]);
+        const finalEdges = newEd.filter(
+          (e) => finalNodeIds.has(e.source) && finalNodeIds.has(e.target)
+        );
+
+        // Track newly added IDs for pruning
+        const newEntityIds = keptNew.map((e) => e.id);
+        const existingEdgeIds = new Set(edges.map((e) => e.id));
+        const newEdgeIds = finalEdges
+          .filter((e) => !existingEdgeIds.has(e.id))
+          .map((e) => e.id);
+        setExpansionSnapshots((snapshots) => {
+          const next = new Map(snapshots);
+          next.set(nodeId, { entityIds: newEntityIds, edgeIds: newEdgeIds });
+          return next;
         });
 
-        setEdges((prev) => {
-          const existingIds = new Set(prev.map((e) => e.id));
-          const newEdgeIds = newEd
-            .filter((e) => !existingIds.has(e.id))
-            .map((e) => e.id);
-          setExpansionSnapshots((snapshots) => {
-            const next = new Map(snapshots);
-            const existing = next.get(nodeId);
-            if (existing) {
-              next.set(nodeId, { ...existing, edgeIds: newEdgeIds });
-            }
-            return next;
-          });
-          return mergeEdges(prev, newEd);
-        });
+        setEntities((prev) => mergeEntities(prev, finalEntities));
+        setEdges((prev) => mergeEdges(prev, finalEdges));
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
         setExpandError(
@@ -243,7 +289,7 @@ function App() {
         setIsExpanding(false);
       }
     },
-    [expandedNodes, isExpanding, entities, addToSelectionHistory]
+    [expandedNodes, isExpanding, entities, addToSelectionHistory, edges]
   );
 
   const handlePruneHistory = useCallback(
@@ -311,7 +357,10 @@ function App() {
           sel && (removedIds.has(sel.id) || idsToRemove.has(sel.id)) ? null : sel
         );
         setSelectedEdge((sel) =>
-          sel && (edgeIdsToRemove.has(sel.id) || idsToRemove.has(sel.source) || idsToRemove.has(sel.target))
+          sel &&
+          (edgeIdsToRemove.has(sel.id) ||
+            idsToRemove.has(sel.source) ||
+            idsToRemove.has(sel.target))
             ? null
             : sel
         );
