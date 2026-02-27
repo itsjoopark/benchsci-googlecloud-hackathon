@@ -44,11 +44,13 @@ interface SimLink extends SimulationLinkDatum<SimNode> {
 }
 
 const EDGE_COLOR = 0xbdc3c7;
-const EDGE_GLOW_WIDTH = 8;
+const EDGE_GLOW_WIDTH = 4;
 const EDGE_GLOW_OPACITY = 0.25;
 const NODE_RADIUS = 14;
 const BG_COLOR = 0xf0eee9;
 const SELECTED_COLOR = 0xFFD700; // yellow for selected nodes/edges
+const BORDER_INNER_OFFSET = 1;
+const BORDER_OUTER_OFFSET = 2.5; // thickness = 1.5 (halved from original 3)
 
 function createNodeGeometry(entityType: string): THREE.BufferGeometry {
   switch (entityType) {
@@ -93,6 +95,94 @@ function createNodeGeometry(entityType: string): THREE.BufferGeometry {
   }
 }
 
+/** Creates a border ring geometry that matches the node shape.
+ *  Uses Shape + holes for polygon types, RingGeometry for circles/hexagons. */
+function createBorderGeometry(
+  entityType: string,
+  innerOffset: number,
+  outerOffset: number
+): THREE.BufferGeometry {
+  switch (entityType) {
+    case "disease": {
+      const outerR = NODE_RADIUS + outerOffset;
+      const innerR = NODE_RADIUS + innerOffset;
+      const shape = new THREE.Shape();
+      shape.moveTo(0, outerR);
+      shape.lineTo(outerR, 0);
+      shape.lineTo(0, -outerR);
+      shape.lineTo(-outerR, 0);
+      shape.closePath();
+      const hole = new THREE.Path();
+      hole.moveTo(0, innerR);
+      hole.lineTo(innerR, 0);
+      hole.lineTo(0, -innerR);
+      hole.lineTo(-innerR, 0);
+      hole.closePath();
+      shape.holes.push(hole);
+      return new THREE.ShapeGeometry(shape);
+    }
+    case "drug": {
+      const outerR = NODE_RADIUS * 0.85 + outerOffset;
+      const innerR = NODE_RADIUS * 0.85 + innerOffset;
+      const cr = 3;
+      const shape = new THREE.Shape();
+      shape.moveTo(-outerR + cr, -outerR);
+      shape.lineTo(outerR - cr, -outerR);
+      shape.quadraticCurveTo(outerR, -outerR, outerR, -outerR + cr);
+      shape.lineTo(outerR, outerR - cr);
+      shape.quadraticCurveTo(outerR, outerR, outerR - cr, outerR);
+      shape.lineTo(-outerR + cr, outerR);
+      shape.quadraticCurveTo(-outerR, outerR, -outerR, outerR - cr);
+      shape.lineTo(-outerR, -outerR + cr);
+      shape.quadraticCurveTo(-outerR, -outerR, -outerR + cr, -outerR);
+      const hole = new THREE.Path();
+      hole.moveTo(-innerR + cr, -innerR);
+      hole.lineTo(innerR - cr, -innerR);
+      hole.quadraticCurveTo(innerR, -innerR, innerR, -innerR + cr);
+      hole.lineTo(innerR, innerR - cr);
+      hole.quadraticCurveTo(innerR, innerR, innerR - cr, innerR);
+      hole.lineTo(-innerR + cr, innerR);
+      hole.quadraticCurveTo(-innerR, innerR, -innerR, innerR - cr);
+      hole.lineTo(-innerR, -innerR + cr);
+      hole.quadraticCurveTo(-innerR, -innerR, -innerR + cr, -innerR);
+      shape.holes.push(hole);
+      return new THREE.ShapeGeometry(shape);
+    }
+    case "pathway": {
+      return new THREE.RingGeometry(
+        NODE_RADIUS + innerOffset,
+        NODE_RADIUS + outerOffset,
+        6
+      );
+    }
+    case "protein": {
+      const outerR = NODE_RADIUS + outerOffset;
+      const innerR = NODE_RADIUS + innerOffset;
+      const cos30 = Math.cos(Math.PI / 6);
+      const sin30 = Math.sin(Math.PI / 6);
+      const shape = new THREE.Shape();
+      shape.moveTo(0, outerR);
+      shape.lineTo(-outerR * cos30, -outerR * sin30);
+      shape.lineTo(outerR * cos30, -outerR * sin30);
+      shape.closePath();
+      const hole = new THREE.Path();
+      hole.moveTo(0, innerR);
+      hole.lineTo(-innerR * cos30, -innerR * sin30);
+      hole.lineTo(innerR * cos30, -innerR * sin30);
+      hole.closePath();
+      shape.holes.push(hole);
+      return new THREE.ShapeGeometry(shape);
+    }
+    default: {
+      return new THREE.RingGeometry(
+        NODE_RADIUS + innerOffset,
+        NODE_RADIUS + outerOffset,
+        32
+      );
+    }
+  }
+}
+
 function createLabelTexture(text: string): THREE.Texture {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d")!;
@@ -119,19 +209,14 @@ function createNumberBadgeTexture(n: number): THREE.Texture {
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d")!;
-  // Circle background
-  ctx.beginPath();
-  ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2);
-  ctx.fillStyle = "#ffffff";
-  ctx.fill();
-  ctx.strokeStyle = "#333333";
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  // Number text
-  ctx.font = "bold 32px Inter, sans-serif";
-  ctx.fillStyle = "#333333";
+  // Number text only — white with dark outline for contrast on colored nodes
+  ctx.font = "bold 38px Inter, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  ctx.strokeStyle = "#000000";
+  ctx.lineWidth = 4;
+  ctx.strokeText(String(n), size / 2, size / 2);
+  ctx.fillStyle = "#ffffff";
   ctx.fillText(String(n), size / 2, size / 2);
   const texture = new THREE.CanvasTexture(canvas);
   texture.minFilter = THREE.LinearFilter;
@@ -341,8 +426,8 @@ export default function GraphCanvas({
 
       // Expansion border ring + number badge
       if (expandedNodeSet.has(node.id)) {
-        const ringGeo = new THREE.RingGeometry(NODE_RADIUS + 1, NODE_RADIUS + 4, 32);
-        const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const ringGeo = createBorderGeometry(node.entityType, BORDER_INNER_OFFSET, BORDER_OUTER_OFFSET);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
         const ring = new THREE.Mesh(ringGeo, ringMat);
         ring.position.z = 0.5;
         mesh.add(ring);
@@ -351,14 +436,16 @@ export default function GraphCanvas({
         const badgeTexture = createNumberBadgeTexture(order);
         const badgeMat = new THREE.SpriteMaterial({ map: badgeTexture, transparent: true });
         const badge = new THREE.Sprite(badgeMat);
-        badge.scale.set(12, 12, 1);
-        badge.position.set(r + 6, r + 6, 2);
+        // Counter-scale so badge size stays constant regardless of node.size
+        const inv = 1 / node.size;
+        badge.scale.set(18 * inv, 18 * inv, 1);
+        badge.position.set(0, 0, 2);
         mesh.add(badge);
       }
 
       // Path highlight
       if (pathIds.has(node.id)) {
-        const ringGeo = new THREE.RingGeometry(r + 1, r + 4, 32);
+        const ringGeo = createBorderGeometry(node.entityType, BORDER_INNER_OFFSET, BORDER_OUTER_OFFSET);
         const ringMat = new THREE.MeshBasicMaterial({ color: 0xf39c12 });
         const ring = new THREE.Mesh(ringGeo, ringMat);
         ring.position.z = 0.5;
@@ -432,7 +519,7 @@ export default function GraphCanvas({
             mat.color.setHex(0x4A90D9);
             mat.opacity = 1;
           } else if (isExpansionPath) {
-            mat.color.setHex(0xffffff);
+            mat.color.setHex(0x000000);
             mat.opacity = 1.0;
           } else {
             mat.color.setHex(EDGE_COLOR);
@@ -528,7 +615,7 @@ export default function GraphCanvas({
             if (!isSelected) {
               const mat = hoveredEdgeLine.material as THREE.LineBasicMaterial;
               if (expansionEdgeIds.has(prevEdgeId)) {
-                mat.color.setHex(0xffffff);
+                mat.color.setHex(0x000000);
                 mat.opacity = 1.0;
               } else {
                 mat.color.setHex(EDGE_COLOR);
@@ -550,7 +637,7 @@ export default function GraphCanvas({
           if (!isSelected) {
             const mat = hoveredEdgeLine.material as THREE.LineBasicMaterial;
             if (expansionEdgeIds.has(hovEdgeId)) {
-              mat.color.setHex(0xffffff);
+              mat.color.setHex(0x000000);
               mat.opacity = 1.0;
             } else {
               mat.color.setHex(EDGE_COLOR);
@@ -577,7 +664,7 @@ export default function GraphCanvas({
         if (!isSelected) {
           const mat = hoveredEdgeLine.material as THREE.LineBasicMaterial;
           if (expansionEdgeIds.has(leaveEdgeId)) {
-            mat.color.setHex(0xffffff);
+            mat.color.setHex(0x000000);
             mat.opacity = 1.0;
           } else {
             mat.color.setHex(EDGE_COLOR);
@@ -683,7 +770,7 @@ export default function GraphCanvas({
           const isExpansionPath = expansionEdgeIds.has(link.id);
           link.glowMesh.visible = isHovered || isSelected || isExpansionPath;
           if (isExpansionPath && !isSelected && !isHovered) {
-            (link.glowMesh.material as THREE.MeshBasicMaterial).color.setHex(0xffffff);
+            (link.glowMesh.material as THREE.MeshBasicMaterial).color.setHex(0x000000);
             (link.glowMesh.material as THREE.MeshBasicMaterial).opacity = 0.3;
           }
         }

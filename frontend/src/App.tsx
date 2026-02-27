@@ -27,6 +27,7 @@ function App() {
   const [entityFilter, setEntityFilter] = useState<EntityFilterValue>("all");
   const [selectionHistory, setSelectionHistory] = useState<Entity[]>([]);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
+  const [chatExpanded, setChatExpanded] = useState(true);
 
   // Maps an entity ID that was expanded → the entity/edge IDs that were newly added
   const [expansionSnapshots, setExpansionSnapshots] = useState<
@@ -140,7 +141,8 @@ function App() {
         setEdges(finalEdges);
         setSelectedEdge(null);
         setPath([]);
-        setExpandedNodes(new Set());
+        setExpandedNodes(centerId ? [centerId] : []);
+        setExpansionSnapshots(new Map());
 
         // Auto-select the center node
         const center = e.find((ent) => ent.id === payload.center_node_id);
@@ -152,6 +154,7 @@ function App() {
         }
 
         setGraphKey((k) => k + 1);
+        setChatExpanded(false);
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") return;
         setQueryError(
@@ -169,7 +172,8 @@ function App() {
       setSelectedEntity(entity);
       setSelectedEdge(null);
       setPath([]);
-      setExpandedNodes(new Set());
+      setExpandedNodes([]);
+      setExpansionSnapshots(new Map());
       addToSelectionHistory(entity);
       setSidebarOpen(true);
       setRightSidebarCollapsed(false);
@@ -199,7 +203,15 @@ function App() {
 
   const handleNodeExpand = useCallback(
     async (nodeId: string) => {
-      if (expandedNodes.has(nodeId) || isExpanding) return;
+      if (expandedNodes.includes(nodeId) || isExpanding) return;
+
+      // Also add to selection history on double-click expand
+      const entity = getEntityById(entities, nodeId);
+      if (entity) {
+        addToSelectionHistory(entity);
+        setSidebarOpen(true);
+        setRightSidebarCollapsed(false);
+      }
 
       expandAbortRef.current?.abort();
       const controller = new AbortController();
@@ -299,17 +311,13 @@ function App() {
 
         // Also remove the expanded-node markers
         const removedIds = new Set(removed.map((e) => e.id));
-        setExpandedNodes((prev) => {
-          const next = new Set(prev);
-          removedIds.forEach((id) => next.delete(id));
-          return next;
-        });
+        setExpandedNodes((prev) => prev.filter((id) => !removedIds.has(id)));
 
         // If the history becomes empty, wipe the entire graph
         if (kept.length === 0) {
           setEntities([]);
           setEdges([]);
-          setExpandedNodes(new Set());
+          setExpandedNodes([]);
           setExpansionSnapshots(new Map());
           setSelectedEntity(null);
           setSelectedEdge(null);
@@ -575,12 +583,11 @@ function App() {
           <button
             className="chat-expand-fab"
             onClick={() => setChatExpanded(true)}
-            aria-label="Open search"
-            title="Open search"
+            aria-label="Open chat"
+            title="Open chat"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
           </button>
         )}
