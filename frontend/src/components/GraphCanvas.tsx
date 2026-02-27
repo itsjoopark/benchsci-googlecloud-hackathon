@@ -62,7 +62,6 @@ const NODE_ICON_RADIUS = 32;
 const NODE_SPRITE_WORLD_SIZE = 45;
 const LABEL_PILL_PADDING_X = 10;
 const LABEL_PILL_PADDING_Y = 6;
-const LABEL_PILL_RADIUS = 8;
 
 // --- Color utilities ---
 
@@ -291,6 +290,9 @@ function createNodeTexture(entityType: string, color: string): THREE.CanvasTextu
   ctx.arc(cx, cy, NODE_CIRCLE_RADIUS, 0, Math.PI * 2);
   ctx.fillStyle = circleGrad;
   ctx.fill();
+
+  // 3. Entity icon overlay
+  drawEntityIcon(ctx, entityType, cx, cy, NODE_ICON_RADIUS);
 
   // 3. Thin white border stroke
   ctx.strokeStyle = "rgba(255,255,255,0.6)";

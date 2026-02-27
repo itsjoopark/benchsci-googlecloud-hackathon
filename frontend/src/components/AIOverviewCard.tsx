@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { streamOverview } from "../data/dataService";
 import type {
   OverviewCitation,
@@ -22,6 +22,74 @@ function getSelectionKey(request: OverviewStreamRequestPayload): string {
   return `node:${request.node_id ?? "unknown"}`;
 }
 
+function normalizeCitationLabel(label: string): string {
+  return label.trim().replace(/^\[|\]$/g, "");
+}
+
+function parseInlineCitations(text: string): { body: string; citations: string[] } {
+  const tailCitationsMatch = text.match(/\bCitations:\s*((?:\[[^\]]+\]\s*,?\s*)+)$/i);
+  if (!tailCitationsMatch || tailCitationsMatch.index === undefined) {
+    return { body: text, citations: [] };
+  }
+
+  const body = text.slice(0, tailCitationsMatch.index).trimEnd();
+  const citationBlock = tailCitationsMatch[1] ?? "";
+  const citations = Array.from(citationBlock.matchAll(/\[([^\]]+)\]/g)).map((m) =>
+    normalizeCitationLabel(m[1] ?? "")
+  );
+  return { body, citations };
+}
+
+function renderRichText(text: string): ReactNode[] {
+  const lines = text.split("\n");
+  const tokenRegex = /(\*\*[^*]+\*\*|\(score\s*=\s*[0-9.]+\)|\[[^\]]+\])/gi;
+
+  return lines.map((line, lineIndex) => {
+    const nodes: ReactNode[] = [];
+    let last = 0;
+
+    for (const match of line.matchAll(tokenRegex)) {
+      const token = match[0];
+      const idx = match.index ?? 0;
+      if (idx > last) {
+        nodes.push(line.slice(last, idx));
+      }
+
+      if (/^\*\*[^*]+\*\*$/.test(token)) {
+        nodes.push(
+          <strong key={`strong-${lineIndex}-${idx}`}>
+            {token.slice(2, -2)}
+          </strong>
+        );
+      } else if (/^\(score\s*=\s*[0-9.]+\)$/i.test(token)) {
+        nodes.push(
+          <span key={`score-${lineIndex}-${idx}`} className="ai-score-tag">
+            {token}
+          </span>
+        );
+      } else {
+        nodes.push(
+          <span key={`cite-${lineIndex}-${idx}`} className="ai-inline-citation">
+            {token}
+          </span>
+        );
+      }
+      last = idx + token.length;
+    }
+
+    if (last < line.length) {
+      nodes.push(line.slice(last));
+    }
+
+    return (
+      <span key={`line-${lineIndex}`}>
+        {nodes}
+        {lineIndex < lines.length - 1 ? <br /> : null}
+      </span>
+    );
+  });
+}
+
 export default function AIOverviewCard({ request, onComplete }: Props) {
   const [rawText, setRawText] = useState("");
   const [visibleCount, setVisibleCount] = useState(0);
@@ -29,6 +97,7 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [citations, setCitations] = useState<OverviewCitation[]>([]);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [collapsed, setCollapsed] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const requestRef = useRef<OverviewStreamRequestPayload | null>(null);
   const onCompleteRef = useRef(onComplete);
@@ -65,6 +134,7 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
         setVisibleCount(0);
         setError(null);
         setCitations([]);
+        setCollapsed(false);
         setLoading(true);
       },
       onContext: (payload) => {
@@ -123,6 +193,18 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
   }, [rawText, visibleCount]);
 
   const displayedText = rawText.slice(0, visibleCount);
+  const canCollapse = displayedText.length > 260 || displayedText.includes("\n");
+  const parsed = useMemo(() => parseInlineCitations(displayedText), [displayedText]);
+  const parsedCitationLabels = useMemo(() => {
+    const labelSet = new Set<string>();
+    for (const c of citations) {
+      labelSet.add(normalizeCitationLabel(c.label));
+    }
+    for (const c of parsed.citations) {
+      labelSet.add(normalizeCitationLabel(c));
+    }
+    return Array.from(labelSet).filter(Boolean);
+  }, [citations, parsed.citations]);
 
   return (
     <section className="ai-overview-card" aria-live="polite">
@@ -138,9 +220,13 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
         {loading && <span className="ai-overview-status">Streaming...</span>}
       </div>
 
-      <div className={`ai-overview-body ${loading ? "streaming" : ""}`}>
-        {displayedText ? (
-          <p className="ai-overview-text">{displayedText}</p>
+      <div
+        className={`ai-overview-body ${loading ? "streaming" : ""} ${collapsed ? "collapsed" : ""}`}
+      >
+        {parsed.body ? (
+          <p className={`ai-overview-text ${loading ? "streaming" : ""}`}>
+            {renderRichText(parsed.body)}
+          </p>
         ) : loading ? (
           <p className="ai-overview-placeholder">Building grounded explanation...</p>
         ) : (
@@ -148,7 +234,7 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
         )}
       </div>
 
-      {(error || citations.length > 0) && (
+      {(error || parsedCitationLabels.length > 0 || canCollapse) && (
         <div className="ai-overview-footer">
           {error && (
             <div className="ai-overview-error-row">
@@ -162,13 +248,34 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
             </div>
           )}
 
-          {citations.length > 0 && (
+          {parsedCitationLabels.length > 0 && (
             <div className="ai-overview-citations">
-              {citations.slice(0, 10).map((citation) => (
-                <span key={citation.id} className={`ai-overview-citation ${citation.kind}`}>
-                  {citation.label}
+              <h4 className="ai-overview-citations-label">Citations</h4>
+              {parsedCitationLabels.slice(0, 12).map((label) => (
+                <span key={label} className="ai-overview-citation evidence">
+                  {label}
                 </span>
               ))}
+            </div>
+          )}
+
+          {canCollapse && (
+            <div className="ai-overview-toggle-row">
+              <button
+                type="button"
+                className="ai-overview-toggle"
+                onClick={() => setCollapsed((prev) => !prev)}
+                aria-expanded={!collapsed}
+                aria-label={collapsed ? "Expand AI overview" : "Collapse AI overview"}
+                title={collapsed ? "Expand overview" : "Collapse overview"}
+              >
+                <span className={`ai-overview-toggle-arrow ${collapsed ? "down" : "up"}`}>
+                  {collapsed ? "↓" : "↑"}
+                </span>
+                <span className="ai-overview-toggle-label">
+                  {collapsed ? "Show full overview" : "Collapse overview"}
+                </span>
+              </button>
             </div>
           )}
         </div>
