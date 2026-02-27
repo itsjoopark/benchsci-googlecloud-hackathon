@@ -12,7 +12,8 @@ FRONTEND_SERVICE="${FRONTEND_SERVICE:-benchspark-frontend}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-benchspark-backend}"
 FRONTEND_TRIGGER="${FRONTEND_TRIGGER:-benchspark-frontend-main}"
 BACKEND_TRIGGER="${BACKEND_TRIGGER:-benchspark-backend-main}"
-OVERVIEW_API_KEY_SECRET="${OVERVIEW_API_KEY_SECRET:-GOOGLE_CLOUD_API_KEY}"
+OVERVIEW_API_KEY_SECRET="${OVERVIEW_API_KEY_SECRET:-GEMINI_API_KEY}"
+EXTRACTION_APP_KEY_SECRET="${EXTRACTION_APP_KEY_SECRET:-GEMINI_APP_KEY}"
 
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
 CLOUDBUILD_SA="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
@@ -80,6 +81,17 @@ if [[ -n "${BACKEND_RUNTIME_SA}" ]]; then
         --quiet
   else
     echo "Secret ${OVERVIEW_API_KEY_SECRET} not found; skipping backend runtime secret binding."
+  fi
+
+  if gcloud secrets describe "${EXTRACTION_APP_KEY_SECRET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+    run_or_flag "Grant roles/secretmanager.secretAccessor on ${EXTRACTION_APP_KEY_SECRET} to backend runtime SA" \
+      gcloud secrets add-iam-policy-binding "${EXTRACTION_APP_KEY_SECRET}" \
+        --member="serviceAccount:${BACKEND_RUNTIME_SA}" \
+        --role="roles/secretmanager.secretAccessor" \
+        --project="${PROJECT_ID}" \
+        --quiet
+  else
+    echo "Secret ${EXTRACTION_APP_KEY_SECRET} not found; skipping backend runtime secret binding."
   fi
 fi
 

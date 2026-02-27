@@ -16,13 +16,24 @@ export async function queryEntity(
   query: string,
   signal?: AbortSignal
 ): Promise<JsonGraphPayload> {
-  const res = await fetch(`${API_BASE}/api/query`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query }),
-    signal,
-  });
-  if (!res.ok) {
+  const MAX_RETRIES = 2;
+  const RETRY_DELAY_MS = 1500;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const res = await fetch(`${API_BASE}/api/query`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+      signal,
+    });
+    if (res.ok) return res.json();
+
+    // Retry on 502 (cold-start / transient gateway error)
+    if (res.status === 502 && attempt < MAX_RETRIES) {
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      continue;
+    }
+
     const detail = await res.text().catch(() => "Unknown error");
     throw new Error(
       res.status === 502
@@ -30,24 +41,36 @@ export async function queryEntity(
         : `Query failed (${res.status}): ${detail}`
     );
   }
-  return res.json();
+
+  throw new Error("Query failed after retries.");
 }
 
 export async function expandEntity(
   entityId: string,
   signal?: AbortSignal
 ): Promise<JsonGraphPayload> {
-  const res = await fetch(`${API_BASE}/api/expand`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ entity_id: entityId }),
-    signal,
-  });
-  if (!res.ok) {
+  const MAX_RETRIES = 2;
+  const RETRY_DELAY_MS = 1500;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const res = await fetch(`${API_BASE}/api/expand`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entity_id: entityId }),
+      signal,
+    });
+    if (res.ok) return res.json();
+
+    if (res.status === 502 && attempt < MAX_RETRIES) {
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      continue;
+    }
+
     const detail = await res.text().catch(() => "Unknown error");
     throw new Error(`Expand failed (${res.status}): ${detail}`);
   }
-  return res.json();
+
+  throw new Error("Expand failed after retries.");
 }
 
 export async function fetchGraph(): Promise<JsonGraphPayload> {

@@ -5,15 +5,11 @@ PROJECT_ID="multihopwanderer-1771992134"
 SERVICE_NAME="benchspark-frontend"
 REGION="us-central1"
 BACKEND_SERVICE_NAME="${BACKEND_SERVICE_NAME:-benchspark-backend}"
+USE_ACTIVE_GCLOUD_ACCOUNT="${USE_ACTIVE_GCLOUD_ACCOUNT:-false}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 KEY_PRIMARY="${REPO_ROOT}/multihopwanderer-1771992134-e47e99e17b16.json"
 KEY_FALLBACK="${REPO_ROOT}/multihopwanderer-1771992134-adeeefb1ffe1.json"
-
-if [[ ! -f "${KEY_PRIMARY}" ]]; then
-  echo "Primary key file not found: ${KEY_PRIMARY}" >&2
-  exit 1
-fi
 
 activate_key() {
   local key_file="$1"
@@ -44,15 +40,26 @@ deploy() {
     --set-build-env-vars "VITE_API_BASE_URL=${backend_url}"
 }
 
-activate_key "${KEY_PRIMARY}"
-if ! deploy; then
-  if [[ ! -f "${KEY_FALLBACK}" ]]; then
-    echo "Deploy failed and fallback key file is missing: ${KEY_FALLBACK}" >&2
+if [[ "${USE_ACTIVE_GCLOUD_ACCOUNT}" == "true" ]]; then
+  echo "Using active gcloud account for deployment."
+  gcloud config set project "${PROJECT_ID}" >/dev/null
+  deploy
+else
+  if [[ ! -f "${KEY_PRIMARY}" ]]; then
+    echo "Primary key file not found: ${KEY_PRIMARY}" >&2
     exit 1
   fi
-  echo "Primary key deploy failed; retrying with fallback key."
-  activate_key "${KEY_FALLBACK}"
-  deploy
+
+  activate_key "${KEY_PRIMARY}"
+  if ! deploy; then
+    if [[ ! -f "${KEY_FALLBACK}" ]]; then
+      echo "Deploy failed and fallback key file is missing: ${KEY_FALLBACK}" >&2
+      exit 1
+    fi
+    echo "Primary key deploy failed; retrying with fallback key."
+    activate_key "${KEY_FALLBACK}"
+    deploy
+  fi
 fi
 
 echo "Deployment finished for ${SERVICE_NAME} in ${PROJECT_ID}/${REGION}."

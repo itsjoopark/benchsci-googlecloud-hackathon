@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     GCP_REGION: str = "us-central1"
     GEMINI_ENDPOINT_URL: str = "https://genai-app-entityextraction-1-1772149446997-113940992739.us-central1.run.app/"
     GEMINI_APP_KEY: str = ""
+    GEMINI_API_KEY: str = ""
     GOOGLE_CLOUD_API_KEY: str = ""
     GEMINI_OVERVIEW_MODEL: str = "gemini-3-flash-preview"
     GEMINI_OVERVIEW_MODEL_FALLBACKS: str = "gemini-2.5-flash,gemini-2.0-flash-001"

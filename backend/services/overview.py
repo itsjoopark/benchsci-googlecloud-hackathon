@@ -82,8 +82,9 @@ def _get_genai_client() -> genai.Client:
     global _genai_client
     if _genai_client is None:
         kwargs: dict = {"vertexai": True}
-        if settings.GOOGLE_CLOUD_API_KEY:
-            kwargs["api_key"] = settings.GOOGLE_CLOUD_API_KEY
+        api_key = (settings.GOOGLE_CLOUD_API_KEY or settings.GEMINI_API_KEY).strip()
+        if api_key:
+            kwargs["api_key"] = api_key
         else:
             kwargs["project"] = settings.GCP_PROJECT_ID
             kwargs["location"] = settings.GCP_REGION
