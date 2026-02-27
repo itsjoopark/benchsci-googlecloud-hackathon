@@ -31,6 +31,7 @@
 .app-layout {
   display: flex;
   flex: 1;
+  min-height: 0;
   margin-top: 48px;
   overflow: hidden;
   background: var(--color-bg-primary);
@@ -47,11 +48,12 @@
 .pane-left {
   width: 280px;
   min-width: 280px;
-  background: rgba(255, 255, 255, 0.75);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-right: 1px solid var(--color-border);
-  overflow-y: auto;
+  min-height: 0;
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border-right: 1px solid var(--glass-border);
+  overflow: hidden;
   transition: width 0.25s ease, min-width 0.25s ease, opacity 0.2s ease;
 }
 
@@ -73,8 +75,10 @@
 .pane-right {
   width: 360px;
   min-width: 360px;
-  background: var(--color-bg-surface);
-  border-left: 1px solid var(--color-border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border-left: 1px solid var(--glass-border);
   overflow-y: auto;
   transition: width 0.25s ease, min-width 0.25s ease, opacity 0.2s ease;
 }
@@ -87,6 +91,13 @@
   align-items: flex-start;
   justify-content: center;
   padding-top: var(--space-lg);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .pane-left,
+  .pane-right {
+    background: rgba(255, 255, 255, 0.92);
+  }
 }
 
 .right-pane-expand {
@@ -110,8 +121,13 @@
 /* ── Left pane header ── */
 
 .pane-header {
+  flex-shrink: 0;
   padding: var(--space-lg);
   border-bottom: 1px solid var(--color-border);
+}
+
+.pane-left .search-bar {
+  flex-shrink: 0;
 }
 
 .path-history-title {
@@ -124,11 +140,21 @@
 .path-history-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
+  gap: 10px;
   padding: var(--space-md) var(--space-lg);
   overflow-y: auto;
+  overflow-x: hidden;
   flex: 1;
   min-height: 0;
+}
+
+.path-history-list .entity-card,
+.path-history-list .path-history-clear {
+  flex-shrink: 0;
+}
+
+.path-history-list .entity-card {
+  margin: 0;
 }
 
 .path-history-clear {

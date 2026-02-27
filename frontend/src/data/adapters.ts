@@ -53,6 +53,7 @@ export function jsonEdgeToGraphEdge(edge: JsonEdge): GraphEdge {
     provenance: edge.provenance === "curated_db" ? "curated" : "literature",
     sourceDb: edge.source_db,
     evidence: edge.evidence.map((ev, i) => jsonEvidenceToEvidenceItem(ev, i)),
+    color: edge.color,
   };
 }
 

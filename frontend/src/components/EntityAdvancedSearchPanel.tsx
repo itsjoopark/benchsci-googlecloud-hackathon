@@ -92,7 +92,7 @@ export default function EntityAdvancedSearchPanel({
                   </div>
                   <div className="entity-advanced-search-source-meta">
                     <span className="entity-advanced-search-source-pmid">
-                      PubMed.ncbi.nlm.nih.gov
+                      PubMed
                     </span>
                     {item.pmid && (
                       <span className="entity-advanced-search-source-id">

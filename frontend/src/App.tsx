@@ -102,6 +102,8 @@ function App() {
       setPath([]);
       setExpandedNodes(new Set());
       addToSelectionHistory(entity);
+      setSidebarOpen(true);
+      setRightSidebarCollapsed(false);
       setGraphKey((k) => k + 1);
     },
     [addToSelectionHistory]
@@ -109,14 +111,25 @@ function App() {
 
   const handleNodeSelect = useCallback(
     (nodeId: string) => {
-      const entity = getEntityById(entities, nodeId);
+      // Toggle: clicking the already-selected node deselects it
+      if (selectedEntity?.id === nodeId) {
+        setSelectedEntity(null);
+        setSelectedEdge(null);
+        return;
+      }
+      const entity =
+        getEntityById(entities, nodeId) ??
+        (graphPayload &&
+          jsonPayloadToGraph(graphPayload).entities.find((e) => e.id === nodeId));
       if (entity) {
         setSelectedEntity(entity);
         setSelectedEdge(null);
         addToSelectionHistory(entity);
+        setSidebarOpen(true);
+        setRightSidebarCollapsed(false);
       }
     },
-    [entities, addToSelectionHistory]
+    [entities, graphPayload, addToSelectionHistory, selectedEntity]
   );
 
   const handleNodeExpand = useCallback((nodeId: string) => {
@@ -281,6 +294,7 @@ function App() {
               ? selectedEntity.id
               : null
           }
+          selectedEdgeId={selectedEdge?.id ?? null}
           expandedNodes={expandedNodes}
           path={path}
           onNodeSelect={handleNodeSelect}

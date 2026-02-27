@@ -20,6 +20,7 @@ export interface GraphEdge {
   provenance: "curated" | "literature" | "inferred";
   sourceDb: string;
   evidence?: EvidenceItem[];
+  color?: string;
 }
 
 export interface EvidenceItem {

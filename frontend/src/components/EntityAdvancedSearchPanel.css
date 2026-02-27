@@ -66,7 +66,7 @@
 
 .entity-advanced-search-sources {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: var(--space-md);
 }
 
@@ -82,6 +82,8 @@
   text-decoration: none;
   color: inherit;
   transition: border-color 0.15s, background 0.15s;
+  overflow: hidden;
+  min-width: 0;
 }
 
 .entity-advanced-search-source-card:hover {
@@ -108,17 +110,29 @@
   flex-direction: column;
   align-items: center;
   gap: 2px;
+  width: 100%;
+  overflow: hidden;
 }
 
 .entity-advanced-search-source-pmid {
   font-size: var(--font-size-xs);
   color: var(--color-gene);
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  display: block;
 }
 
 .entity-advanced-search-source-id {
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  display: block;
 }
 
 .entity-advanced-search-overview {

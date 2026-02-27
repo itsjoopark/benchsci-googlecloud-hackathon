@@ -43,6 +43,11 @@
   /* Graph canvas */
   --graph-bg: #F0EEE9;
   --graph-grid-color: #E5E3DE;
+
+  /* Glass material (Figma node 12-105) */
+  --glass-bg: rgba(255, 255, 255, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.35);
+  --glass-blur: 16px;
 }
 
 *,
