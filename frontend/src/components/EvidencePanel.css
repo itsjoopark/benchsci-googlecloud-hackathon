@@ -109,26 +109,29 @@
 }
 
 .evidence-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin-bottom: var(--space-xs);
+}
+
+.evidence-year-badge {
+  display: inline-block;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-primary);
+  padding: 2px 8px;
+  border-radius: 9999px;
+  letter-spacing: 0.02em;
 }
 
 .pmid-link {
   font-size: var(--font-size-xs);
   color: var(--color-gene);
   text-decoration: none;
-  font-weight: 600;
+  margin-left: auto;
 }
 
 .pmid-link:hover {
   text-decoration: underline;
-}
-
-.evidence-year {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
 }
 
 .evidence-card-title {

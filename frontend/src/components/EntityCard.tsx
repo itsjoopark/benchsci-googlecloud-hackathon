@@ -4,6 +4,7 @@ import "./EntityCard.css";
 
 interface Props {
   entity: Entity;
+  variant?: "full" | "compact";
 }
 
 function MetaRow({
@@ -107,9 +108,93 @@ const CARD_MAP: Record<string, React.FC<{ entity: Entity }>> = {
   protein: ProteinCard,
 };
 
-export default function EntityCard({ entity }: Props) {
-  const CardContent = CARD_MAP[entity.type] || GeneCard;
+/* ── Compact variants: 2-3 most scientifically relevant fields ── */
+
+function GeneCardCompact({ entity }: { entity: Entity }) {
+  const m = entity.metadata;
+  return (
+    <>
+      <MetaRow label="Symbol" value={(m.symbol as string) ?? entity.name} />
+      <MetaRow label="Chr" value={m.chromosome as string} />
+    </>
+  );
+}
+
+function DiseaseCardCompact({ entity }: { entity: Entity }) {
+  const m = entity.metadata;
+  return (
+    <>
+      <MetaRow label="MONDO" value={(m.mondo_id as string) ?? entity.primaryId} />
+      <MetaRow label="Prevalence" value={m.prevalence as string} />
+    </>
+  );
+}
+
+function DrugCardCompact({ entity }: { entity: Entity }) {
+  const m = entity.metadata;
+  return (
+    <>
+      <MetaRow label="Mechanism" value={m.mechanism as string} />
+      <MetaRow label="Status" value={m.approval_status as string} />
+    </>
+  );
+}
+
+function PathwayCardCompact({ entity }: { entity: Entity }) {
+  const m = entity.metadata;
+  return (
+    <>
+      <MetaRow label="Reactome" value={(m.reactome_id as string) ?? entity.primaryId} />
+      <MetaRow label="Reactions" value={m.reaction_count as number} />
+    </>
+  );
+}
+
+function ProteinCardCompact({ entity }: { entity: Entity }) {
+  const m = entity.metadata;
+  return (
+    <>
+      <MetaRow label="UniProt" value={entity.primaryId} />
+      <MetaRow label="Location" value={m.subcellularLocation as string} />
+    </>
+  );
+}
+
+const COMPACT_CARD_MAP: Record<string, React.FC<{ entity: Entity }>> = {
+  gene: GeneCardCompact,
+  disease: DiseaseCardCompact,
+  drug: DrugCardCompact,
+  pathway: PathwayCardCompact,
+  protein: ProteinCardCompact,
+};
+
+export default function EntityCard({ entity, variant = "full" }: Props) {
+  const isCompact = variant === "compact";
+  const cardMap = isCompact ? COMPACT_CARD_MAP : CARD_MAP;
+  const CardContent = cardMap[entity.type] || (isCompact ? GeneCardCompact : GeneCard);
   const badgeColor = entity.color ?? ENTITY_COLORS[entity.type];
+
+  if (isCompact) {
+    return (
+      <div className="entity-card entity-card--compact">
+        <div className="entity-card-color-bar" style={{ background: badgeColor }} />
+        <div className="entity-card--compact-content">
+          <div className="entity-card-header entity-card-header--compact">
+            <span
+              className="entity-type-badge entity-type-badge--compact"
+              style={{ background: badgeColor }}
+            >
+              {entity.type}
+            </span>
+            <h2 className="entity-card-name entity-card-name--compact">{entity.name}</h2>
+          </div>
+          <div className="entity-card-body entity-card-body--compact">
+            <CardContent entity={entity} />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="entity-card">

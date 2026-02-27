@@ -42,5 +42,10 @@ class Settings(BaseSettings):
     ]
     CORS_ORIGIN_REGEX: str = r"^https://benchspark-frontend(-[a-z0-9-]+)?\.us-central1\.run\.app$"
 
+    # ORKG (Open Research Knowledge Graph) evidence enrichment
+    ORKG_BQ_TABLE: str = "orkg_contributions"
+    ORKG_MAX_RESULTS: int = 10
+    ORKG_ENABLED: bool = True
+
 
 settings = Settings()

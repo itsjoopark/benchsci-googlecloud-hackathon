@@ -78,19 +78,11 @@ export default function EvidencePanel({ edge, evidence, entities, onClose, onCol
         ) : (
           evidence.map((item) => (
             <div key={item.id} className="evidence-card">
-              <div className="evidence-card-header">
-                {item.pmid && (
-                  <a
-                    className="pmid-link"
-                    href={`https://pubmed.ncbi.nlm.nih.gov/${item.pmid}/`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    PMID: {item.pmid}
-                  </a>
-                )}
-                {item.year && <span className="evidence-year">{item.year}</span>}
-              </div>
+              {item.year != null && item.year > 0 && (
+                <div className="evidence-card-header">
+                  <span className="evidence-year-badge">{item.year}</span>
+                </div>
+              )}
               {item.title && item.title !== item.snippet && (
                 <p className="evidence-card-title">{item.title}</p>
               )}
@@ -98,6 +90,16 @@ export default function EvidencePanel({ edge, evidence, entities, onClose, onCol
               <div className="evidence-card-footer">
                 <ProvenanceBadge type={item.sourceDb === "disgenet" ? "literature" : "curated"} />
                 <span className="source-db">{item.sourceDb}</span>
+                {item.pmid && (
+                  <a
+                    className="pmid-link"
+                    href={`https://pubmed.ncbi.nlm.nih.gov/${item.pmid}/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    PubMed ↗
+                  </a>
+                )}
               </div>
             </div>
           ))

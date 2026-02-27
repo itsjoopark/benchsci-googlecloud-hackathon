@@ -1,16 +1,18 @@
 import { useState, useCallback, useRef, useMemo } from "react";
-import type { Entity, GraphEdge, PathNode } from "./types";
+import type { Entity, GraphEdge, PathNode, EntityFilterValue } from "./types";
 import { jsonPayloadToGraph } from "./data/adapters";
 import { queryEntity, expandEntity } from "./data/dataService";
 import type { OverviewStreamRequestPayload } from "./types/api";
 import SearchBar from "./components/SearchBar";
-import EntityCard from "./components/EntityCard";
+import PathBreadcrumb from "./components/PathBreadcrumb";
 import GraphCanvas from "./components/GraphCanvas";
 import EvidencePanel from "./components/EvidencePanel";
 import EntityAdvancedSearchPanel from "./components/EntityAdvancedSearchPanel";
 import AIOverviewCard from "./components/AIOverviewCard";
 import Toolbar from "./components/Toolbar";
-import ChatInput, { type EntityFilterValue } from "./components/ChatInput";
+import ChatInput from "./components/ChatInput";
+import GraphLegend from "./components/GraphLegend";
+import EntityFilter from "./components/EntityFilter";
 import "./App.css";
 
 function getEntityById(entities: Entity[], nodeId: string): Entity | undefined {
@@ -507,73 +509,64 @@ function App() {
         <h1 className="top-nav-title">BioRender</h1>
       </nav>
       <div className="app-layout">
-      {/* Left Pane - Path History */}
+      {/* Left Pane - Exploration Path */}
       <aside className={`pane pane-left ${sidebarOpen ? "" : "collapsed"}`}>
         <div className="pane-header">
-          <h2 className="path-history-title">Path History</h2>
+          <h2 className="path-history-title">Exploration Path</h2>
         </div>
         <SearchBar entities={entities} onSelect={handleSearchSelect} />
         <div className="path-history-list">
-          {selectionHistory.map((entity, idx) => (
-            <div key={entity.id} className="path-history-entry">
-              <EntityCard entity={entity} />
-              <button
-                className="path-history-prune"
-                onClick={() => handlePruneHistory(idx)}
-                aria-label={`Remove ${entity.name} and newer entries`}
-                title="Prune from here"
-              >
-                &times;
-              </button>
-            </div>
-          ))}
-          {selectionHistory.length > 0 && (
-            <button
-              className="path-history-clear"
-              onClick={() => {
-                setSelectionHistory([]);
-                setExpansionSnapshots(new Map());
-              }}
-            >
-              Clear history
-            </button>
-          )}
+          <PathBreadcrumb
+            selectionHistory={selectionHistory}
+            edges={edges}
+            onPrune={handlePruneHistory}
+            onClear={() => {
+              setSelectionHistory([]);
+              setExpansionSnapshots(new Map());
+            }}
+          />
         </div>
       </aside>
 
       {/* Centre Pane */}
       <main className="pane pane-centre">
-        {/* Sidebar toggle */}
-        <button
-          className="sidebar-toggle"
-          onClick={() => setSidebarOpen((v) => !v)}
-          aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+        {/* Top bar: hamburger + hints + filter */}
+        <div className="centre-topbar">
+          <button
+            className="sidebar-toggle"
+            onClick={() => setSidebarOpen((v) => !v)}
+            aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
           >
-            {sidebarOpen ? (
-              <>
-                <path d="M15 18l-6-6 6-6" />
-              </>
-            ) : (
-              <>
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="18" x2="21" y2="18" />
-              </>
-            )}
-          </svg>
-        </button>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              {sidebarOpen ? (
+                <>
+                  <path d="M15 18l-6-6 6-6" />
+                </>
+              ) : (
+                <>
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <line x1="3" y1="12" x2="21" y2="12" />
+                  <line x1="3" y1="18" x2="21" y2="18" />
+                </>
+              )}
+            </svg>
+          </button>
 
-        <Toolbar onFit={handleFit} disabled={!graphLoaded} pathLength={path.length} onClearPath={() => setPath([])} />
+          <Toolbar onFit={handleFit} disabled={!graphLoaded} pathLength={path.length} onClearPath={() => setPath([])} />
+
+          {graphLoaded && (
+            <EntityFilter entityFilter={entityFilter} onEntityFilterChange={setEntityFilter} />
+          )}
+        </div>
 
         {/* Error banner */}
         {queryError && (
@@ -640,13 +633,14 @@ function App() {
           onAddToPath={handleAddToPath}
         />
 
+        {/* Graph legend (bottom-left) */}
+        {graphLoaded && <GraphLegend />}
+
         {/* Chat input */}
         {chatExpanded ? (
           <ChatInput
             onSubmit={handleQuery}
             isLoading={isQuerying}
-            entityFilter={entityFilter}
-            onEntityFilterChange={setEntityFilter}
             onCollapse={() => setChatExpanded(false)}
           />
         ) : (

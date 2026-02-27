@@ -59,3 +59,5 @@ export const ENTITY_SHAPES: Record<EntityType, string> = {
   pathway: "hexagon",
   protein: "triangle",
 };
+
+export type EntityFilterValue = EntityType[] | "all";

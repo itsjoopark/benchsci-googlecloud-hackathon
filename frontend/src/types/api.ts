@@ -90,6 +90,6 @@ export interface OverviewStreamRequestPayload {
 
 export interface OverviewCitation {
   id: string;
-  kind: "evidence" | "rag";
+  kind: "evidence" | "rag" | "orkg";
   label: string;
 }
