@@ -30,20 +30,35 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
   const [citations, setCitations] = useState<OverviewCitation[]>([]);
   const [retryNonce, setRetryNonce] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
+  const requestRef = useRef<OverviewStreamRequestPayload | null>(null);
+  const onCompleteRef = useRef(onComplete);
 
   const selectionKey = useMemo(
     () => (request ? getSelectionKey(request) : null),
     [request]
   );
+  const streamKey = useMemo(() => {
+    if (!request || !selectionKey) return null;
+    return `${request.selection_type}:${selectionKey}:${request.center_node_id}`;
+  }, [request, selectionKey]);
 
   useEffect(() => {
-    if (!request || !selectionKey) return;
+    requestRef.current = request;
+  }, [request]);
+
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  useEffect(() => {
+    const activeRequest = requestRef.current;
+    if (!activeRequest || !selectionKey || !streamKey) return;
 
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
-    void streamOverview(request, {
+    void streamOverview(activeRequest, {
       signal: controller.signal,
       onStart: () => {
         setRawText("");
@@ -60,7 +75,8 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
       },
       onDone: (payload) => {
         const finalText = payload.text || "";
-        setRawText(finalText);
+        // Never shrink text on done: keep streaming deltas if they're longer.
+        setRawText((prev) => (finalText.length > prev.length ? finalText : prev));
         setLoading(false);
 
         if (payload.citations?.length) {
@@ -68,9 +84,9 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
         }
 
         if (finalText.trim()) {
-          onComplete({
+          onCompleteRef.current({
             selectionKey,
-            selectionType: request.selection_type,
+            selectionType: activeRequest.selection_type,
             summary: finalText,
           });
         }
@@ -91,7 +107,7 @@ export default function AIOverviewCard({ request, onComplete }: Props) {
     return () => {
       controller.abort();
     };
-  }, [request, selectionKey, retryNonce, onComplete]);
+  }, [selectionKey, streamKey, retryNonce]);
 
   useEffect(() => {
     if (visibleCount >= rawText.length) return;

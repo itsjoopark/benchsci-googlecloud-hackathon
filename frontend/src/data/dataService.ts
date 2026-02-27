@@ -149,40 +149,53 @@ export async function streamOverview(
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
 
+  const dispatchEventBlock = (block: string) => {
+    const parsed = parseSseBlock(block.trim());
+    if (!parsed) return;
+
+    if (parsed.event === "start") {
+      handlers.onStart?.(parsed.data);
+    } else if (parsed.event === "context") {
+      handlers.onContext?.({
+        citations: parsed.data.citations as OverviewCitation[] | undefined,
+        rag_chunks: parsed.data.rag_chunks as Array<Record<string, unknown>> | undefined,
+      });
+    } else if (parsed.event === "delta") {
+      handlers.onDelta?.({ text: String(parsed.data.text ?? "") });
+    } else if (parsed.event === "done") {
+      handlers.onDone?.({
+        text: String(parsed.data.text ?? ""),
+        citations: parsed.data.citations as OverviewCitation[] | undefined,
+        selection_key: parsed.data.selection_key as string | undefined,
+        selection_type: parsed.data.selection_type as "edge" | "node" | undefined,
+      });
+    } else if (parsed.event === "error") {
+      handlers.onError?.({
+        message: String(parsed.data.message ?? "Overview generation failed."),
+        partial_text: parsed.data.partial_text as string | undefined,
+      });
+    }
+  };
+
   while (true) {
     const { value, done } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const blocks = buffer.split("\n\n");
-    buffer = blocks.pop() ?? "";
-
-    for (const block of blocks) {
-      const parsed = parseSseBlock(block.trim());
-      if (!parsed) continue;
-
-      if (parsed.event === "start") {
-        handlers.onStart?.(parsed.data);
-      } else if (parsed.event === "context") {
-        handlers.onContext?.({
-          citations: parsed.data.citations as OverviewCitation[] | undefined,
-          rag_chunks: parsed.data.rag_chunks as Array<Record<string, unknown>> | undefined,
-        });
-      } else if (parsed.event === "delta") {
-        handlers.onDelta?.({ text: String(parsed.data.text ?? "") });
-      } else if (parsed.event === "done") {
-        handlers.onDone?.({
-          text: String(parsed.data.text ?? ""),
-          citations: parsed.data.citations as OverviewCitation[] | undefined,
-          selection_key: parsed.data.selection_key as string | undefined,
-          selection_type: parsed.data.selection_type as "edge" | "node" | undefined,
-        });
-      } else if (parsed.event === "error") {
-        handlers.onError?.({
-          message: String(parsed.data.message ?? "Overview generation failed."),
-          partial_text: parsed.data.partial_text as string | undefined,
-        });
+    if (value) {
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        dispatchEventBlock(block);
       }
+    }
+    if (done) {
+      // Flush decoder tail so we don't lose the last SSE frame on chunk boundary.
+      buffer += decoder.decode();
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        dispatchEventBlock(block);
+      }
+      break;
     }
   }
 
