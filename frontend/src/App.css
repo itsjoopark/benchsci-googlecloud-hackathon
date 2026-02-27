@@ -212,6 +212,40 @@
   background: var(--color-bg-elevated);
 }
 
+.pane-top-section {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.pane-resize-handle {
+  flex-shrink: 0;
+  height: 6px;
+  cursor: row-resize;
+  background: var(--color-border);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  z-index: 10;
+}
+
+.pane-resize-handle::after {
+  content: "";
+  width: 32px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+.pane-resize-handle:hover,
+.pane-resize-handle:active {
+  background: rgba(74, 144, 217, 0.25);
+}
+
 .right-pane-content {
   flex: 1;
   min-height: 0;

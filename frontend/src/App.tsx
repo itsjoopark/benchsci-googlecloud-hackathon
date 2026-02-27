@@ -31,6 +31,8 @@ function App() {
   const [selectionHistory, setSelectionHistory] = useState<Entity[]>([]);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
   const [chatExpanded, setChatExpanded] = useState(true);
+  const [overviewRatio, setOverviewRatio] = useState(0.75);
+  const rightPaneRef = useRef<HTMLElement>(null);
 
   // Maps an entity ID that was expanded → the entity/edge IDs that were newly added
   const [expansionSnapshots, setExpansionSnapshots] = useState<
@@ -408,6 +410,23 @@ function App() {
     [edges]
   );
 
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const pane = rightPaneRef.current;
+    if (!pane) return;
+    const onMouseMove = (ev: MouseEvent) => {
+      const rect = pane.getBoundingClientRect();
+      const ratio = (ev.clientY - rect.top) / rect.height;
+      setOverviewRatio(Math.max(0.15, Math.min(0.90, ratio)));
+    };
+    const onMouseUp = () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }, []);
+
   const handleFit = useCallback(() => setGraphKey((k) => k + 1), []);
 
   const handleResetExploration = useCallback(() => {
@@ -675,6 +694,7 @@ function App() {
       {/* Right Pane */}
       {(selectedEdge || selectedEntity) && (
         <aside
+          ref={rightPaneRef}
           className={`pane pane-right ${rightSidebarCollapsed ? "collapsed" : ""}`}
         >
           {rightSidebarCollapsed ? (
@@ -696,18 +716,21 @@ function App() {
             </button>
           ) : (
             <>
-              <AIOverviewCard
-                key={overviewRequest ? `${overviewRequest.selection_type}:${overviewRequest.edge_id ?? overviewRequest.node_id ?? "none"}` : "overview-none"}
-                request={overviewRequest}
-                onComplete={(item) => {
-                  setOverviewHistory((prev) => {
-                    const deduped = prev.filter(
-                      (existing) => existing.selectionKey !== item.selectionKey
-                    );
-                    return [...deduped, item].slice(-3);
-                  });
-                }}
-              />
+              <div className="pane-top-section" style={{ flex: `0 0 ${overviewRatio * 100}%` }}>
+                <AIOverviewCard
+                  key={overviewRequest ? `${overviewRequest.selection_type}:${overviewRequest.edge_id ?? overviewRequest.node_id ?? "none"}` : "overview-none"}
+                  request={overviewRequest}
+                  onComplete={(item) => {
+                    setOverviewHistory((prev) => {
+                      const deduped = prev.filter(
+                        (existing) => existing.selectionKey !== item.selectionKey
+                      );
+                      return [...deduped, item].slice(-3);
+                    });
+                  }}
+                />
+              </div>
+              <div className="pane-resize-handle" onMouseDown={handleDividerMouseDown} />
               <div className="right-pane-content">
                 {selectedEdge ? (
                   <EvidencePanel
