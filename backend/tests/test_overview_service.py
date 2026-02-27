@@ -115,12 +115,11 @@ def test_sse_stream_event_order(monkeypatch):
         def __init__(self, text: str):
             self.text = text
 
-    class _Model:
-        def generate_content(self, *_args, **_kwargs):
-            return [_Chunk("Hello "), _Chunk("world")]
+    def _mock_stream(*_args, **_kwargs):
+        return iter([_Chunk("Hello "), _Chunk("world")]), "gemini-test-model"
 
     monkeypatch.setattr(overview, "_retrieve_rag_chunks", lambda _ctx: [])
-    monkeypatch.setattr(overview, "_get_generation_model", lambda: _Model())
+    monkeypatch.setattr(overview, "_stream_overview_generation", _mock_stream)
 
     events = list(overview.stream_overview_events(req))
 

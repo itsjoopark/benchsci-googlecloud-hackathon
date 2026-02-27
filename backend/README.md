@@ -33,6 +33,17 @@ From repo root:
 ```
 
 This uses root service-account JSON keys with fallback and deploys from `backend/` source.
+It also maps Secret Manager secret `overview-google-cloud-api-key` to
+`GOOGLE_CLOUD_API_KEY` on Cloud Run at deploy time.
+
+Optional overrides:
+
+```bash
+OVERVIEW_API_KEY_SECRET=your-secret-name \
+GEMINI_OVERVIEW_MODEL=gemini-3-flash-preview \
+GEMINI_OVERVIEW_MODEL_FALLBACKS=gemini-2.5-flash,gemini-2.0-flash-001 \
+./scripts/gcp/deploy_backend_cloud_run.sh
+```
 
 ## Current live URL
 

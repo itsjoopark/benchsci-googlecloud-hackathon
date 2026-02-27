@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
+import itertools
 import logging
 import re
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Iterator
 
 import vertexai
+from google import genai
+from google.genai import types as genai_types
 from google.api_core.exceptions import GoogleAPICallError
 from google.cloud import aiplatform, bigquery
-from vertexai.generative_models import GenerationConfig, GenerativeModel
 from vertexai.language_models import TextEmbeddingInput, TextEmbeddingModel
 
 from backend.config import settings
@@ -51,7 +53,8 @@ class SelectionContext:
 
 _bq_client: bigquery.Client | None = None
 _embed_model: TextEmbeddingModel | None = None
-_generative_model: GenerativeModel | None = None
+_genai_client: genai.Client | None = None
+_resolved_generation_model_name: str | None = None
 _index_endpoint: aiplatform.MatchingEngineIndexEndpoint | None = None
 
 
@@ -75,12 +78,59 @@ def _get_embed_model() -> TextEmbeddingModel:
     return _embed_model
 
 
-def _get_generation_model() -> GenerativeModel:
-    global _generative_model
-    if _generative_model is None:
-        vertexai.init(project=settings.GCP_PROJECT_ID, location=settings.GCP_REGION)
-        _generative_model = GenerativeModel(settings.GEMINI_OVERVIEW_MODEL)
-    return _generative_model
+def _get_genai_client() -> genai.Client:
+    global _genai_client
+    if _genai_client is None:
+        kwargs: dict = {"vertexai": True}
+        if settings.GOOGLE_CLOUD_API_KEY:
+            kwargs["api_key"] = settings.GOOGLE_CLOUD_API_KEY
+        else:
+            kwargs["project"] = settings.GCP_PROJECT_ID
+            kwargs["location"] = settings.GCP_REGION
+        _genai_client = genai.Client(**kwargs)
+    return _genai_client
+
+
+def _overview_model_candidates() -> list[str]:
+    configured = settings.GEMINI_OVERVIEW_MODEL.strip()
+    fallbacks = [
+        name.strip()
+        for name in settings.GEMINI_OVERVIEW_MODEL_FALLBACKS.split(",")
+        if name.strip()
+    ]
+    return [configured, *fallbacks]
+
+
+def _stream_overview_generation(prompt: str) -> tuple[Iterator[genai_types.GenerateContentResponse], str]:
+    client = _get_genai_client()
+    config = genai_types.GenerateContentConfig(
+        temperature=0.2,
+        top_p=0.9,
+        max_output_tokens=600,
+    )
+
+    last_error: Exception | None = None
+    for model_name in _overview_model_candidates():
+        try:
+            stream = client.models.generate_content_stream(
+                model=model_name,
+                contents=[
+                    genai_types.Content(
+                        role="user",
+                        parts=[genai_types.Part(text=prompt)],
+                    )
+                ],
+                config=config,
+            )
+            first_chunk = next(stream)
+            return itertools.chain([first_chunk], stream), model_name
+        except Exception as exc:
+            last_error = exc
+            logger.warning("Overview model unavailable: %s (%s)", model_name, exc)
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("No overview model candidates configured")
 
 
 def _get_index_endpoint() -> aiplatform.MatchingEngineIndexEndpoint:
@@ -422,21 +472,17 @@ def stream_overview_events(request: OverviewStreamRequest):
 
     full_text = ""
     try:
-        model = _get_generation_model()
         prompt = _prompt_text(context, rag_chunks, request.history)
-
-        stream = model.generate_content(
-            prompt,
-            stream=True,
-            generation_config=GenerationConfig(
-                temperature=0.2,
-                top_p=0.9,
-                max_output_tokens=600,
-            ),
-        )
+        stream, chosen_model = _stream_overview_generation(prompt)
+        global _resolved_generation_model_name
+        _resolved_generation_model_name = chosen_model
 
         for chunk in stream:
-            text = getattr(chunk, "text", "") or ""
+            text = getattr(chunk, "text", None)
+            if text is None:
+                text = ""
+                if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
+                    text = "".join(part.text or "" for part in chunk.candidates[0].content.parts)
             if not text:
                 continue
             full_text += text
@@ -449,6 +495,7 @@ def stream_overview_events(request: OverviewStreamRequest):
                 "citations": [c.__dict__ for c in citations],
                 "selection_key": context.selection_key,
                 "selection_type": context.selection_type,
+                "model": _resolved_generation_model_name or settings.GEMINI_OVERVIEW_MODEL,
             },
         )
     except Exception as exc:

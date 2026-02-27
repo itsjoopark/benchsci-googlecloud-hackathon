@@ -5,6 +5,9 @@ substitutions:
   _SERVICE_NAME: benchspark-backend
   _REGION: us-central1
   _AR_REPO: cloud-run-source-deploy
+  _OVERVIEW_API_KEY_SECRET: overview-google-cloud-api-key
+  _GEMINI_OVERVIEW_MODEL: gemini-3-flash-preview
+  _GEMINI_OVERVIEW_MODEL_FALLBACKS: gemini-2.5-flash,gemini-2.0-flash-001
 
 steps:
   - name: gcr.io/cloud-builders/docker
@@ -36,7 +39,9 @@ steps:
       - managed
       - --allow-unauthenticated
       - --set-env-vars
-      - GCP_PROJECT_ID=$PROJECT_ID,GCP_REGION=${_REGION}
+      - GCP_PROJECT_ID=$PROJECT_ID,GCP_REGION=${_REGION},GEMINI_OVERVIEW_MODEL=${_GEMINI_OVERVIEW_MODEL},GEMINI_OVERVIEW_MODEL_FALLBACKS=${_GEMINI_OVERVIEW_MODEL_FALLBACKS}
+      - --set-secrets
+      - GOOGLE_CLOUD_API_KEY=${_OVERVIEW_API_KEY_SECRET}:latest
 
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_SERVICE_NAME}:$COMMIT_SHA

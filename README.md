@@ -14,6 +14,9 @@ From repo root:
 ./scripts/gcp/deploy_backend_cloud_run.sh
 ```
 
+Backend deploy script also maps Secret Manager secret
+`overview-google-cloud-api-key` to Cloud Run env var `GOOGLE_CLOUD_API_KEY`.
+
 ## Monorepo CD
 
 Cloud Build configs:

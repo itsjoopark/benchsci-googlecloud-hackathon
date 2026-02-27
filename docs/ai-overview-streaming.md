@@ -7,7 +7,9 @@ This feature adds a streaming AI explanation sidebar for node/edge clicks.
 Set these in `backend/.env` (or environment):
 
 ```bash
+GOOGLE_CLOUD_API_KEY=<your-vertex-genai-key>
 GEMINI_OVERVIEW_MODEL=gemini-3-flash-preview
+GEMINI_OVERVIEW_MODEL_FALLBACKS=gemini-2.5-flash,gemini-2.0-flash-001
 VERTEX_VECTOR_ENDPOINT_RESOURCE=projects/<project>/locations/<region>/indexEndpoints/<id>
 VERTEX_VECTOR_DEPLOYED_INDEX_ID=<deployed-index-id>
 OVERVIEW_HISTORY_LIMIT=3
@@ -16,6 +18,48 @@ OVERVIEW_RAG_FETCH_K=150
 OVERVIEW_RAG_DATASET=multihopwanderer
 OVERVIEW_RAG_EMBED_TABLE=evidence_embeddings_pilot
 OVERVIEW_RAG_ENTITY_TABLE=evidence_doc_entities_pilot
+```
+
+Notes:
+- Only the overview stream path uses `GOOGLE_CLOUD_API_KEY` (via `google-genai`).
+- Existing extraction call remains unchanged.
+- If `gemini-3-flash-preview` is unavailable, the backend automatically falls back to models in `GEMINI_OVERVIEW_MODEL_FALLBACKS`.
+
+## Deployment (Cloud Run) with Secret Manager
+
+Create/update secret:
+
+```bash
+printf '%s' "$GOOGLE_CLOUD_API_KEY" | \
+gcloud secrets create overview-google-cloud-api-key --data-file=- \
+  --project multihopwanderer-1771992134 || true
+```
+
+If secret already exists, add a new version:
+
+```bash
+printf '%s' "$GOOGLE_CLOUD_API_KEY" | \
+gcloud secrets versions add overview-google-cloud-api-key --data-file=- \
+  --project multihopwanderer-1771992134
+```
+
+Grant Cloud Run runtime service account access:
+
+```bash
+gcloud secrets add-iam-policy-binding overview-google-cloud-api-key \
+  --member="serviceAccount:<runtime-sa>@multihopwanderer-1771992134.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project multihopwanderer-1771992134
+```
+
+Deploy and wire secret to env var:
+
+```bash
+gcloud run deploy <backend-service> \
+  --region us-central1 \
+  --project multihopwanderer-1771992134 \
+  --set-secrets GOOGLE_CLOUD_API_KEY=overview-google-cloud-api-key:latest \
+  --set-env-vars GEMINI_OVERVIEW_MODEL=gemini-3-flash-preview,GEMINI_OVERVIEW_MODEL_FALLBACKS=gemini-2.5-flash,gemini-2.0-flash-001
 ```
 
 ## Verify vector readiness
