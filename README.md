@@ -10,71 +10,107 @@ BioRender enables researchers to search for biomedical entities (genes, diseases
 
 ```mermaid
 flowchart TB
-    subgraph User["User Interface (React + Three.js)"]
-        Search["Search Bar\n(fuzzy entity search)"]
-        Graph["3D Graph Canvas\n(Three.js + d3-force)"]
-        Evidence["Evidence Panel\n(PubMed citations)"]
-        DeepThink["DeepThink Panel\n(extended reasoning)"]
-        Overview["AI Overview\n(RAG summaries)"]
-        PathPanel["Pathway Panel\n(shortest path)"]
-    end
+ subgraph User["🖥️ User Interface — React + Three.js"]
+        Search["**Search Bar**<br>fuzzy entity search"]
+        Graph["**3D Graph Canvas**<br>Three.js + d3-force"]
+        Evidence["**Evidence Panel**<br>PubMed citations"]
+        DeepThink["**DeepThink Panel**<br>extended reasoning"]
+        Overview["**AI Overview**<br>RAG summaries"]
+        PathPanel["**Pathway Panel**<br>shortest path"]
+  end
+ subgraph Backend["⚡ Backend API — FastAPI + Python"]
+        QueryRouter@{ label: "**Query Router**<br>`/api/query`" }
+        ExpandRouter@{ label: "**Expand Router**<br>`/api/expand`" }
+        SnapshotRouter@{ label: "**Snapshot Router**<br>`/api/snapshot`" }
+        OverviewRouter@{ label: "**Overview Stream**<br>`/api/overview/stream`" }
+        DeepThinkRouter@{ label: "**DeepThink Stream**<br>`/api/deep-think/stream`" }
+  end
+ subgraph Data["🗄️ Data & Storage"]
+        BigQuery["**BigQuery**<br>PKG 2.0 warehouse"]
+        Spanner["**Cloud Spanner**<br>graph traversal"]
+        Firestore["**Firestore**<br>snapshot persistence"]
+        GCS["**Cloud Storage**<br>raw data staging"]
+  end
+ subgraph AI["🧠 AI / ML Services"]
+        Gemini3["**Gemini 3 Flash**<br>AI overviews"]
+        Gemini25["**Gemini 2.5 Pro**<br>DeepThink reasoning"]
+        VertexEmb["**Vertex AI Embeddings**<br>vector search"]
+  end
+ subgraph Infra["🔧 Infrastructure"]
+        CloudRun["**Cloud Run**<br>serverless containers"]
+        CloudBuild["**Cloud Build**<br>CI/CD pipelines"]
+        ArtifactReg["**Artifact Registry**<br>Docker images"]
+        SecretMgr["**Secret Manager**<br>API keys"]
+  end
+ subgraph GCP["☁️ Google Cloud Platform"]
+        Data
+        AI
+        Infra
+  end
+ subgraph External["🌐 External Services"]
+        SemanticScholar["**Semantic Scholar API**<br>paper metadata"]
+  end
+    Search -- entity query --> QueryRouter
+    Graph -- expand node --> ExpandRouter
+    Graph -- save / load state --> SnapshotRouter
+    Overview -- SSE stream --> OverviewRouter
+    DeepThink -- SSE stream --> DeepThinkRouter
+    QueryRouter -- intent detection --> Gemini3
+    QueryRouter -- entity lookup --> BigQuery
+    QueryRouter -- shortest path --> Spanner
+    ExpandRouter -- neighborhood query --> BigQuery
+    SnapshotRouter -- persist state --> Firestore
+    OverviewRouter -- embed query --> VertexEmb
+    OverviewRouter -- retrieve evidence --> BigQuery
+    OverviewRouter -- generate summary --> Gemini3
+    DeepThinkRouter -- paper metadata --> SemanticScholar
+    DeepThinkRouter -- extended reasoning --> Gemini25
+    DeepThinkRouter -- evidence lookup --> BigQuery
+    CloudBuild -- build & push --> ArtifactReg
+    ArtifactReg -- deploy --> CloudRun
+    SecretMgr -- inject secrets --> CloudRun
 
-    subgraph Backend["Backend API (FastAPI + Python)"]
-        QueryRouter["Query Router\n(/api/query)"]
-        ExpandRouter["Expand Router\n(/api/expand)"]
-        SnapshotRouter["Snapshot Router\n(/api/snapshot)"]
-        OverviewRouter["Overview Stream\n(/api/overview/stream)"]
-        DeepThinkRouter["DeepThink Stream\n(/api/deep-think/stream)"]
-    end
-
-    subgraph GCP["Google Cloud Platform"]
-        subgraph Data["Data & Storage"]
-            BigQuery["BigQuery\n(PKG 2.0 warehouse)"]
-            Spanner["Cloud Spanner\n(graph traversal)"]
-            Firestore["Firestore\n(snapshot persistence)"]
-            GCS["Cloud Storage\n(raw data staging)"]
-        end
-        subgraph AI["AI / ML Services"]
-            Gemini3["Gemini 3 Flash\n(AI overviews)"]
-            Gemini25["Gemini 2.5 Pro\n(DeepThink reasoning)"]
-            VertexEmb["Vertex AI Embeddings\n(vector search)"]
-        end
-        subgraph Infra["Infrastructure"]
-            CloudRun["Cloud Run\n(serverless containers)"]
-            CloudBuild["Cloud Build\n(CI/CD pipelines)"]
-            ArtifactReg["Artifact Registry\n(Docker images)"]
-            SecretMgr["Secret Manager\n(API keys)"]
-        end
-    end
-
-    subgraph External["External Services"]
-        SemanticScholar["Semantic Scholar API\n(paper metadata)"]
-    end
-
-    Search -->|entity query| QueryRouter
-    QueryRouter -->|intent detection| Gemini3
-    QueryRouter -->|entity lookup| BigQuery
-    QueryRouter -->|shortest path| Spanner
-
-    Graph -->|expand node| ExpandRouter
-    ExpandRouter -->|neighborhood query| BigQuery
-
-    Graph -->|save/load state| SnapshotRouter
-    SnapshotRouter --> Firestore
-
-    Overview -->|SSE stream| OverviewRouter
-    OverviewRouter -->|embed query| VertexEmb
-    OverviewRouter -->|retrieve evidence| BigQuery
-    OverviewRouter -->|generate summary| Gemini3
-
-    DeepThink -->|SSE stream| DeepThinkRouter
-    DeepThinkRouter -->|paper metadata| SemanticScholar
-    DeepThinkRouter -->|extended reasoning| Gemini25
-    DeepThinkRouter -->|evidence lookup| BigQuery
-
-    CloudBuild -->|build & push| ArtifactReg
-    ArtifactReg -->|deploy| CloudRun
-    SecretMgr -->|inject secrets| CloudRun
+    QueryRouter@{ shape: rect}
+    ExpandRouter@{ shape: rect}
+    SnapshotRouter@{ shape: rect}
+    OverviewRouter@{ shape: rect}
+    DeepThinkRouter@{ shape: rect}
+     Search:::ui
+     Graph:::ui
+     Evidence:::ui
+     DeepThink:::ui
+     Overview:::ui
+     PathPanel:::ui
+     QueryRouter:::api
+     ExpandRouter:::api
+     SnapshotRouter:::api
+     OverviewRouter:::api
+     DeepThinkRouter:::api
+     BigQuery:::data
+     Spanner:::data
+     Firestore:::data
+     GCS:::data
+     Gemini3:::ai
+     Gemini25:::ai
+     VertexEmb:::ai
+     CloudRun:::infra
+     CloudBuild:::infra
+     ArtifactReg:::infra
+     SecretMgr:::infra
+     SemanticScholar:::ext
+    classDef ui fill:#0c4a6e,stroke:#0ea5e9,stroke-width:2px,color:#e0f2fe
+    classDef api fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#dcfce7
+    classDef data fill:#7c2d12,stroke:#f97316,stroke-width:2px,color:#ffedd5
+    classDef ai fill:#4c1d95,stroke:#8b5cf6,stroke-width:2px,color:#ede9fe
+    classDef infra fill:#1e293b,stroke:#64748b,stroke-width:2px,color:#e2e8f0
+    classDef ext fill:#881337,stroke:#fb7185,stroke-width:2px,color:#ffe4e6
+    style User fill:#0f172a,stroke:#0ea5e9,stroke-width:2px,color:#38bdf8
+    style Backend fill:#0f172a,stroke:#22c55e,stroke-width:2px,color:#4ade80
+    style GCP fill:#0f172a,stroke:#475569,stroke-width:2px,color:#94a3b8
+    style Data fill:#1a0a00,stroke:#f97316,stroke-width:1px,color:#fb923c
+    style AI fill:#1a0533,stroke:#8b5cf6,stroke-width:1px,color:#a78bfa
+    style Infra fill:#0f172a,stroke:#64748b,stroke-width:1px,color:#94a3b8
+    style External fill:#1a0a1a,stroke:#fb7185,stroke-width:2px,color:#fb7185
 ```
 
 ---
