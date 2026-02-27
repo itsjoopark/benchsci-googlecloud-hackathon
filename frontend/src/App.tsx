@@ -53,6 +53,9 @@ function App() {
   const [expandError, setExpandError] = useState<string | null>(null);
   const expandAbortRef = useRef<AbortController | null>(null);
 
+  // Snapshot of the initial query result so Reset can restore it
+  const initialGraphStateRef = useRef<{ entities: Entity[]; edges: GraphEdge[]; centerNodeId: string } | null>(null);
+
   /** Merge incoming entities from an expand response. New entities are added;
    * existing entities that appear in the response are updated with the
    * incoming size (and optional fields) so node sizes reflect co-occurrence
@@ -149,6 +152,9 @@ function App() {
           (edge) => keptIds.has(edge.source) && keptIds.has(edge.target)
         );
 
+        // Cache for reset
+        initialGraphStateRef.current = { entities: finalEntities, edges: finalEdges, centerNodeId: payload.center_node_id ?? "" };
+
         setEntities(finalEntities);
         setEdges(finalEdges);
         setSelectedEdge(null);
@@ -196,8 +202,25 @@ function App() {
     [addToSelectionHistory]
   );
 
+  // Path-constrained expansion: only the last expanded node's neighbors are interactive
+  const disabledNodeIds = useMemo(() => {
+    if (entities.length === 0 || expandedNodes.length === 0) return new Set<string>();
+    const lastExpandedId = expandedNodes[expandedNodes.length - 1];
+    const activeNodeIds = new Set<string>(expandedNodes);
+    for (const edge of edges) {
+      if (edge.source === lastExpandedId) activeNodeIds.add(edge.target);
+      if (edge.target === lastExpandedId) activeNodeIds.add(edge.source);
+    }
+    const disabled = new Set<string>();
+    for (const entity of entities) {
+      if (!activeNodeIds.has(entity.id)) disabled.add(entity.id);
+    }
+    return disabled;
+  }, [entities, edges, expandedNodes]);
+
   const handleNodeSelect = useCallback(
     (nodeId: string) => {
+      if (disabledNodeIds.has(nodeId)) return;
       // Toggle: clicking the already-selected node deselects it
       if (selectedEntity?.id === nodeId) {
         setSelectedEntity(null);
@@ -212,11 +235,12 @@ function App() {
         setRightSidebarCollapsed(false);
       }
     },
-    [entities, selectedEntity]
+    [entities, selectedEntity, disabledNodeIds]
   );
 
   const handleNodeExpand = useCallback(
     async (nodeId: string) => {
+      if (disabledNodeIds.has(nodeId)) return;
       if (expandedNodes.includes(nodeId) || isExpanding) return;
 
       // Also add to selection history on double-click expand
@@ -301,7 +325,7 @@ function App() {
         setIsExpanding(false);
       }
     },
-    [expandedNodes, isExpanding, entities, addToSelectionHistory, edges]
+    [expandedNodes, isExpanding, entities, addToSelectionHistory, edges, disabledNodeIds]
   );
 
   const handlePruneHistory = useCallback(
@@ -391,6 +415,7 @@ function App() {
 
   const handleAddToPath = useCallback(
     (nodeId: string) => {
+      if (disabledNodeIds.has(nodeId)) return;
       const entity = getEntityById(entities, nodeId);
       if (!entity) return;
 
@@ -415,10 +440,30 @@ function App() {
         },
       ]);
     },
-    [path, edges, entities]
+    [path, edges, entities, disabledNodeIds]
   );
 
   const handleFit = useCallback(() => setGraphKey((k) => k + 1), []);
+
+  const handleResetExploration = useCallback(() => {
+    const snapshot = initialGraphStateRef.current;
+    if (!snapshot) return;
+    expandAbortRef.current?.abort();
+    setIsExpanding(false);
+    setEntities(snapshot.entities);
+    setEdges(snapshot.edges);
+    setCenterNodeId(snapshot.centerNodeId);
+    setExpandedNodes(snapshot.centerNodeId ? [snapshot.centerNodeId] : []);
+    setExpansionSnapshots(new Map());
+    setSelectionHistory([]);
+    setPath([]);
+    setSelectedEdge(null);
+    setOverviewHistory([]);
+    const center = snapshot.entities.find((e) => e.id === snapshot.centerNodeId);
+    if (center) { setSelectedEntity(center); addToSelectionHistory(center); }
+    else { setSelectedEntity(null); }
+    setGraphKey((k) => k + 1);
+  }, [addToSelectionHistory]);
 
   const graphLoaded = entities.length > 0;
 
@@ -583,7 +628,7 @@ function App() {
             </svg>
           </button>
 
-          <Toolbar onFit={handleFit} disabled={!graphLoaded} pathLength={path.length} onClearPath={() => setPath([])} />
+          <Toolbar onFit={handleFit} disabled={!graphLoaded} pathLength={path.length} onClearPath={() => setPath([])} canReset={graphLoaded && expandedNodes.length > 1} onReset={handleResetExploration} />
 
           {graphLoaded && (
             <EntityFilter entityFilter={entityFilter} onEntityFilterChange={setEntityFilter} />
@@ -653,6 +698,7 @@ function App() {
           onNodeExpand={handleNodeExpand}
           onEdgeSelect={handleEdgeSelect}
           onAddToPath={handleAddToPath}
+          disabledNodeIds={disabledNodeIds}
         />
 
         {/* Graph legend (bottom-left) */}

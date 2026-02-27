@@ -5,14 +5,27 @@ interface Props {
   disabled: boolean;
   pathLength: number;
   onClearPath: () => void;
+  canReset: boolean;
+  onReset: () => void;
 }
 
-export default function Toolbar({ pathLength }: Props) {
+export default function Toolbar({ pathLength, canReset, onReset }: Props) {
   return (
     <div className="toolbar">
       {pathLength > 0 && (
         <span className="toolbar-path-count">{pathLength} in path</span>
       )}
+
+      {canReset && (
+        <button className="toolbar-reset-btn" onClick={onReset} title="Reset to initial query">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M1 4v6h6" />
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+          </svg>
+          Reset
+        </button>
+      )}
+
       <div className="toolbar-hints">
         <span className="toolbar-hint-item">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

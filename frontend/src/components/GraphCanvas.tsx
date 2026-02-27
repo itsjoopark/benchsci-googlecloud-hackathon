@@ -24,6 +24,7 @@ interface Props {
   onNodeExpand: (nodeId: string) => void;
   onEdgeSelect: (edgeId: string) => void;
   onAddToPath: (nodeId: string) => void;
+  disabledNodeIds: Set<string>;
 }
 
 interface SimNode extends SimulationNodeDatum {
@@ -61,7 +62,6 @@ const NODE_ICON_RADIUS = 32;
 const NODE_SPRITE_WORLD_SIZE = 45;
 const LABEL_PILL_PADDING_X = 10;
 const LABEL_PILL_PADDING_Y = 6;
-const LABEL_PILL_RADIUS = 8;
 
 // --- Color utilities ---
 
@@ -291,6 +291,9 @@ function createNodeTexture(entityType: string, color: string): THREE.CanvasTextu
   ctx.fillStyle = circleGrad;
   ctx.fill();
 
+  // 3. Entity icon overlay
+  drawEntityIcon(ctx, entityType, cx, cy, NODE_ICON_RADIUS);
+
   // 3. Thin white border stroke
   ctx.strokeStyle = "rgba(255,255,255,0.6)";
   ctx.lineWidth = 2;
@@ -372,6 +375,7 @@ export default function GraphCanvas({
   onNodeExpand,
   onEdgeSelect,
   onAddToPath,
+  disabledNodeIds,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -383,6 +387,7 @@ export default function GraphCanvas({
   const onNodeExpandRef = useRef(onNodeExpand);
   const onEdgeSelectRef = useRef(onEdgeSelect);
   const onAddToPathRef = useRef(onAddToPath);
+  const disabledNodeIdsRef = useRef(disabledNodeIds);
   const pathIds = new Set(path.map((p) => p.entityId));
 
   // Position persistence for smooth incremental updates (expand)
@@ -398,6 +403,7 @@ export default function GraphCanvas({
   onNodeExpandRef.current = onNodeExpand;
   onEdgeSelectRef.current = onEdgeSelect;
   onAddToPathRef.current = onAddToPath;
+  disabledNodeIdsRef.current = disabledNodeIds;
 
   useEffect(() => {
     if (!containerRef.current || entities.length === 0) return;
@@ -664,6 +670,15 @@ export default function GraphCanvas({
           node.labelSprite.position.x = node.x;
           node.labelSprite.position.y = node.y - (r + 14);
         }
+
+        // Dim disabled (non-frontier) nodes
+        const isDisabled = disabledNodeIdsRef.current.has(node.id);
+        if (node.nodeSprite) {
+          (node.nodeSprite.material as THREE.SpriteMaterial).opacity = isDisabled ? 0.35 : 1.0;
+        }
+        if (node.labelSprite) {
+          (node.labelSprite.material as THREE.SpriteMaterial).opacity = isDisabled ? 0.35 : 1.0;
+        }
       });
 
       simLinks.forEach((link) => {
@@ -677,6 +692,7 @@ export default function GraphCanvas({
 
           const isSelected = link.id === selectedEdgeIdRef.current;
           const isExpansionPath = expansionEdgeIds.has(link.id);
+          const eitherDisabled = disabledNodeIdsRef.current.has(s.id) || disabledNodeIdsRef.current.has(t.id);
           const mat = link.line.material as THREE.LineBasicMaterial;
           if (isSelected) {
             mat.color.setHex(0x4A90D9);
@@ -684,6 +700,9 @@ export default function GraphCanvas({
           } else if (isExpansionPath) {
             mat.color.setHex(0x000000);
             mat.opacity = 1.0;
+          } else if (eitherDisabled) {
+            mat.color.setHex(EDGE_COLOR);
+            mat.opacity = 0.15;
           } else {
             mat.color.setHex(EDGE_COLOR);
             mat.opacity = 0.6;
@@ -722,6 +741,7 @@ export default function GraphCanvas({
       screenToWorld(event.clientX, event.clientY);
       raycaster.setFromCamera(mouse, camera);
       const nodeMeshes = simNodes
+        .filter((n) => !disabledNodeIdsRef.current.has(n.id))
         .map((n) => n.mesh)
         .filter(Boolean) as THREE.Mesh[];
       const intersects = raycaster.intersectObjects(nodeMeshes, false);
