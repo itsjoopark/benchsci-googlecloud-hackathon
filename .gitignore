@@ -61,3 +61,8 @@ service-account-key.json
 # Large dataset files
 data
 CLAUDE.md
+rdf-export-orkg.nt
+data/mappings/chebi_to_drugbank.json
+data/mappings/mesh_to_drugbank.json
+data/mappings/mesh_to_mondo.json
+data/processed/orkg_contributions.csv
