@@ -54,6 +54,10 @@ export function jsonEdgeToGraphEdge(edge: JsonEdge): GraphEdge {
     sourceDb: edge.source_db,
     evidence: edge.evidence.map((ev, i) => jsonEvidenceToEvidenceItem(ev, i)),
     color: edge.color,
+    paperCount: edge.paper_count,
+    trialCount: edge.trial_count,
+    patentCount: edge.patent_count,
+    cooccurrenceScore: edge.cooccurrence_score,
   };
 }
 

@@ -27,6 +27,10 @@ export interface JsonEdge {
   confidence_score?: number;
   provenance: string;
   evidence: JsonEvidence[];
+  paper_count: number;
+  trial_count: number;
+  patent_count: number;
+  cooccurrence_score: number;
 }
 
 export interface JsonGraphPayload {

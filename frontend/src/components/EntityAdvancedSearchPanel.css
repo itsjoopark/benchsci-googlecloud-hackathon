@@ -135,6 +135,57 @@
   display: block;
 }
 
+/* ── Co-occurrence stats ── */
+
+.cooccurrence-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-md);
+}
+
+.cooccurrence-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--space-md);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.cooccurrence-stat-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.cooccurrence-stat-value {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  line-height: 1.2;
+}
+
+.cooccurrence-stat-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cooccurrence-relation {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.cooccurrence-relation strong {
+  color: var(--color-text-primary);
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
 .entity-advanced-search-overview {
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);

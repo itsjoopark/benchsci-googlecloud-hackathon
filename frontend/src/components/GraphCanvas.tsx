@@ -19,6 +19,7 @@ interface Props {
   selectedEdgeId: string | null;
   expandedNodes: string[];
   path: PathNode[];
+  historyEdgeIds: Set<string>;
   onNodeSelect: (nodeId: string) => void;
   onNodeExpand: (nodeId: string) => void;
   onEdgeSelect: (edgeId: string) => void;
@@ -47,6 +48,7 @@ const EDGE_GLOW_WIDTH = 8;
 const EDGE_GLOW_OPACITY = 0.25;
 const NODE_RADIUS = 14;
 const BG_COLOR = 0xf0eee9;
+const SELECTED_COLOR = 0xFFD700; // yellow for selected nodes/edges
 
 function createNodeGeometry(entityType: string): THREE.BufferGeometry {
   switch (entityType) {
@@ -143,6 +145,7 @@ export default function GraphCanvas({
   selectedEdgeId,
   expandedNodes,
   path,
+  historyEdgeIds,
   onNodeSelect,
   onNodeExpand,
   onEdgeSelect,
@@ -153,6 +156,7 @@ export default function GraphCanvas({
   const hoveredNodeRef = useRef<THREE.Mesh | null>(null);
   const selectedEntityIdRef = useRef<string | null>(selectedEntityId);
   const selectedEdgeIdRef = useRef<string | null>(selectedEdgeId);
+  const historyEdgeIdsRef = useRef<Set<string>>(historyEdgeIds);
   const onNodeSelectRef = useRef(onNodeSelect);
   const onNodeExpandRef = useRef(onNodeExpand);
   const onEdgeSelectRef = useRef(onEdgeSelect);
@@ -167,6 +171,7 @@ export default function GraphCanvas({
 
   selectedEntityIdRef.current = selectedEntityId;
   selectedEdgeIdRef.current = selectedEdgeId;
+  historyEdgeIdsRef.current = historyEdgeIds;
   onNodeSelectRef.current = onNodeSelect;
   onNodeExpandRef.current = onNodeExpand;
   onEdgeSelectRef.current = onEdgeSelect;
