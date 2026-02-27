@@ -81,25 +81,12 @@ def _get_embed_model() -> TextEmbeddingModel:
 def _get_genai_client() -> genai.Client:
     global _genai_client
     if _genai_client is None:
-        kwargs: dict = {"vertexai": True}
-        api_key = (settings.GOOGLE_CLOUD_API_KEY or settings.GEMINI_API_KEY).strip()
-        if api_key:
-            kwargs["api_key"] = api_key
-        else:
-            kwargs["project"] = settings.GCP_PROJECT_ID
-            kwargs["location"] = settings.GCP_REGION
-        _genai_client = genai.Client(**kwargs)
+        _genai_client = genai.Client(
+            vertexai=True,
+            project=settings.GCP_PROJECT_ID,
+            location=settings.GEMINI_OVERVIEW_LOCATION,
+        )
     return _genai_client
-
-
-def _overview_model_candidates() -> list[str]:
-    configured = settings.GEMINI_OVERVIEW_MODEL.strip()
-    fallbacks = [
-        name.strip()
-        for name in settings.GEMINI_OVERVIEW_MODEL_FALLBACKS.split(",")
-        if name.strip()
-    ]
-    return [configured, *fallbacks]
 
 
 def _stream_overview_generation(prompt: str) -> tuple[Iterator[genai_types.GenerateContentResponse], str]:
@@ -109,29 +96,22 @@ def _stream_overview_generation(prompt: str) -> tuple[Iterator[genai_types.Gener
         top_p=0.9,
         max_output_tokens=600,
     )
+    model_name = settings.GEMINI_OVERVIEW_MODEL.strip()
+    if not model_name:
+        raise RuntimeError("GEMINI_OVERVIEW_MODEL is not configured")
 
-    last_error: Exception | None = None
-    for model_name in _overview_model_candidates():
-        try:
-            stream = client.models.generate_content_stream(
-                model=model_name,
-                contents=[
-                    genai_types.Content(
-                        role="user",
-                        parts=[genai_types.Part(text=prompt)],
-                    )
-                ],
-                config=config,
+    stream = client.models.generate_content_stream(
+        model=model_name,
+        contents=[
+            genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text=prompt)],
             )
-            first_chunk = next(stream)
-            return itertools.chain([first_chunk], stream), model_name
-        except Exception as exc:
-            last_error = exc
-            logger.warning("Overview model unavailable: %s (%s)", model_name, exc)
-
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("No overview model candidates configured")
+        ],
+        config=config,
+    )
+    first_chunk = next(stream)
+    return itertools.chain([first_chunk], stream), model_name
 
 
 def _get_index_endpoint() -> aiplatform.MatchingEngineIndexEndpoint:
