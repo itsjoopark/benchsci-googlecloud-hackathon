@@ -92,9 +92,12 @@ async def find_entity(
 
 
 async def find_related_entities(entity_id: str) -> list[dict]:
-    """Find entities related to the given entity via C21_Bioentity_Relationships."""
+    """Find entities related to the given entity via C21_Bioentity_Relationships,
+    ranked by combined co-occurrence across papers, clinical trials, and patents."""
     sql = f"""
-    WITH relationships AS (
+    WITH
+    -- C21 relationships for the seed entity
+    relationships AS (
       SELECT entity_id1, entity_id2, relation_type, PMID,
         CASE WHEN entity_id1 = @entity_id THEN entity_id2 ELSE entity_id1 END AS other_entity_id,
         CASE WHEN entity_id1 = @entity_id THEN '->' ELSE '<-' END AS direction
@@ -107,11 +110,54 @@ async def find_related_entities(entity_id: str) -> list[dict]:
         ARRAY_AGG(DISTINCT PMID ORDER BY PMID LIMIT {settings.MAX_EVIDENCE_PER_EDGE}) AS pmids
       FROM relationships
       GROUP BY other_entity_id, relation_type, direction
+    ),
+
+    -- Co-occurrence: papers (C06)
+    paper_co AS (
+      SELECT a.Entityid AS other_entity_id, COUNT(DISTINCT a.PMID) AS paper_count
+      FROM {_table("C06_Link_Papers_BioEntities")} seed
+      JOIN {_table("C06_Link_Papers_BioEntities")} a ON a.PMID = seed.PMID
+      WHERE seed.Entityid = @entity_id
+        AND a.Entityid != @entity_id
+      GROUP BY a.Entityid
+    ),
+
+    -- Co-occurrence: clinical trials (C13)
+    trial_co AS (
+      SELECT a.EntityId AS other_entity_id, COUNT(DISTINCT a.nct_id) AS trial_count
+      FROM {_table("C13_Link_ClinicalTrials_BioEntities")} seed
+      JOIN {_table("C13_Link_ClinicalTrials_BioEntities")} a ON a.nct_id = seed.nct_id
+      WHERE seed.EntityId = @entity_id
+        AND a.EntityId != @entity_id
+      GROUP BY a.EntityId
+    ),
+
+    -- Co-occurrence: patents (C18)
+    patent_co AS (
+      SELECT a.EntityId AS other_entity_id, COUNT(DISTINCT a.PatentId) AS patent_count
+      FROM {_table("C18_Link_Patents_BioEntities")} seed
+      JOIN {_table("C18_Link_Patents_BioEntities")} a ON a.PatentId = seed.PatentId
+      WHERE seed.EntityId = @entity_id
+        AND a.EntityId != @entity_id
+      GROUP BY a.EntityId
     )
-    SELECT a.*, e.Type AS other_type, e.Mention AS other_mention
+
+    SELECT
+      a.*,
+      e.Type  AS other_type,
+      e.Mention AS other_mention,
+      COALESCE(pc.paper_count,  0) AS paper_count,
+      COALESCE(tc.trial_count,  0) AS trial_count,
+      COALESCE(pt.patent_count, 0) AS patent_count,
+      COALESCE(pc.paper_count,  0)
+        + COALESCE(tc.trial_count,  0)
+        + COALESCE(pt.patent_count, 0) AS cooccurrence_score
     FROM agg a
-    LEFT JOIN {_table("C23_BioEntities")} e ON a.other_entity_id = e.EntityId
-    ORDER BY a.evidence_count DESC
+    LEFT JOIN {_table("C23_BioEntities")} e   ON e.EntityId        = a.other_entity_id
+    LEFT JOIN paper_co  pc                    ON pc.other_entity_id = a.other_entity_id
+    LEFT JOIN trial_co  tc                    ON tc.other_entity_id = a.other_entity_id
+    LEFT JOIN patent_co pt                    ON pt.other_entity_id = a.other_entity_id
+    ORDER BY cooccurrence_score DESC, a.evidence_count DESC
     LIMIT {settings.MAX_RELATED_ENTITIES}
     """
 
@@ -135,6 +181,10 @@ async def find_related_entities(entity_id: str) -> list[dict]:
             "pmids": [str(p) for p in row["pmids"]] if row["pmids"] else [],
             "other_type": row["other_type"],
             "other_mention": row["other_mention"],
+            "paper_count": row["paper_count"],
+            "trial_count": row["trial_count"],
+            "patent_count": row["patent_count"],
+            "cooccurrence_score": row["cooccurrence_score"],
         }
         for row in rows
     ]
