@@ -6,8 +6,6 @@ const LEGEND_ITEMS: { type: EntityType; label: string }[] = [
   { type: "gene", label: "Gene" },
   { type: "disease", label: "Disease" },
   { type: "drug", label: "Drug" },
-  { type: "pathway", label: "Pathway" },
-  { type: "protein", label: "Protein" },
 ];
 
 export default function GraphLegend() {

@@ -26,6 +26,9 @@ interface Props {
   fitRequest: number;
   pathNodeIds?: string[];
   onPositionsUpdate?: (positions: Map<string, { x: number; y: number }>) => void;
+  lastExpandedNodeId?: string | null;
+  moreConnectionsCount?: number;
+  onLoadMore?: (nodeId: string) => void;
 }
 
 interface SimNode extends SimulationNodeDatum {
@@ -163,6 +166,9 @@ export default function GraphCanvas({
   fitRequest,
   pathNodeIds,
   onPositionsUpdate,
+  lastExpandedNodeId,
+  moreConnectionsCount,
+  onLoadMore,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
@@ -177,6 +183,9 @@ export default function GraphCanvas({
   const disabledNodeIdsRef = useRef(disabledNodeIds);
   const pathNodeIdsRef = useRef(pathNodeIds);
   const onPositionsUpdateRef = useRef(onPositionsUpdate);
+  const lastExpandedNodeIdRef = useRef(lastExpandedNodeId);
+  const moreConnectionsCountRef = useRef(moreConnectionsCount);
+  const onLoadMoreRef = useRef(onLoadMore);
 
   // Position persistence for smooth incremental updates (expand)
   const nodePositionsRef = useRef<Map<string, { x: number; y: number }>>(
@@ -193,6 +202,9 @@ export default function GraphCanvas({
   disabledNodeIdsRef.current = disabledNodeIds;
   pathNodeIdsRef.current = pathNodeIds;
   onPositionsUpdateRef.current = onPositionsUpdate;
+  lastExpandedNodeIdRef.current = lastExpandedNodeId;
+  moreConnectionsCountRef.current = moreConnectionsCount;
+  onLoadMoreRef.current = onLoadMore;
 
   useEffect(() => {
     if (!containerRef.current || entities.length === 0) return;
@@ -799,6 +811,72 @@ export default function GraphCanvas({
     container.addEventListener("mouseup", handleMouseUp);
     container.addEventListener("wheel", handleWheel, { passive: false });
 
+    // Context menu for "Load More" on last expanded node
+    const contextMenu = document.createElement("div");
+    contextMenu.className = "graph-context-menu";
+    contextMenu.style.display = "none";
+    container.appendChild(contextMenu);
+
+    let contextMenuNodeId: string | null = null;
+
+    function hideContextMenu() {
+      contextMenu.style.display = "none";
+      contextMenuNodeId = null;
+    }
+
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      const node = getIntersectedNode(e);
+      if (!node) { hideContextMenu(); return; }
+      const nodeId = node.userData.nodeId as string;
+      const count = moreConnectionsCountRef.current ?? 0;
+      if (nodeId !== lastExpandedNodeIdRef.current || count <= 0) {
+        hideContextMenu();
+        return;
+      }
+      contextMenuNodeId = nodeId;
+      const batchSize = Math.min(5, count);
+      contextMenu.innerHTML = `<button class="graph-context-menu-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>Load ${batchSize} more</span>
+        <span class="graph-context-menu-count">${count} remaining</span>
+      </button>`;
+      // Position menu near cursor, clamped within container
+      const rect = container.getBoundingClientRect();
+      const menuW = 220, menuH = 44;
+      const x = Math.min(e.clientX - rect.left, rect.width - menuW - 8);
+      const y = Math.min(e.clientY - rect.top, rect.height - menuH - 8);
+      contextMenu.style.left = `${Math.max(4, x)}px`;
+      contextMenu.style.top = `${Math.max(4, y)}px`;
+      contextMenu.style.display = "block";
+      // Attach click handler to button
+      const btn = contextMenu.querySelector("button");
+      if (btn) {
+        btn.onclick = () => {
+          if (contextMenuNodeId) onLoadMoreRef.current?.(contextMenuNodeId);
+          hideContextMenu();
+        };
+      }
+    };
+
+    // Dismiss context menu on outside click, escape, or scroll
+    const handleDismissClick = (e: MouseEvent) => {
+      if (contextMenu.style.display === "block" && !contextMenu.contains(e.target as Node)) {
+        hideContextMenu();
+      }
+    };
+    const handleDismissKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") hideContextMenu();
+    };
+    const handleDismissWheel = () => {
+      if (contextMenu.style.display === "block") hideContextMenu();
+    };
+
+    container.addEventListener("contextmenu", handleContextMenu);
+    document.addEventListener("mousedown", handleDismissClick);
+    document.addEventListener("keydown", handleDismissKey);
+    container.addEventListener("wheel", handleDismissWheel);
+
     // Resize
     const handleResize = () => {
       const w = container.clientWidth;
@@ -901,6 +979,10 @@ export default function GraphCanvas({
       container.removeEventListener("mousedown", handleMouseDown);
       container.removeEventListener("mouseup", handleMouseUp);
       container.removeEventListener("wheel", handleWheel);
+      container.removeEventListener("contextmenu", handleContextMenu);
+      document.removeEventListener("mousedown", handleDismissClick);
+      document.removeEventListener("keydown", handleDismissKey);
+      container.removeEventListener("wheel", handleDismissWheel);
       resizeObs.disconnect();
       // Dispose node sprites and labels (cached textures are preserved across renders)
       simNodes.forEach((node) => {
@@ -929,6 +1011,9 @@ export default function GraphCanvas({
       }
       if (container.contains(tooltip)) {
         container.removeChild(tooltip);
+      }
+      if (container.contains(contextMenu)) {
+        container.removeChild(contextMenu);
       }
     };
 

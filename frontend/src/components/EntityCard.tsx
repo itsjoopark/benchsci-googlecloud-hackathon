@@ -114,7 +114,7 @@ function GeneCardCompact({ entity }: { entity: Entity }) {
   const m = entity.metadata;
   return (
     <>
-      <MetaRow label="Symbol" value={(m.symbol as string) ?? entity.name} />
+      <MetaRow label="Full name" value={m.full_name as string} />
       <MetaRow label="Chr" value={m.chromosome as string} />
     </>
   );
@@ -124,7 +124,6 @@ function DiseaseCardCompact({ entity }: { entity: Entity }) {
   const m = entity.metadata;
   return (
     <>
-      <MetaRow label="MONDO" value={(m.mondo_id as string) ?? entity.primaryId} />
       <MetaRow label="Prevalence" value={m.prevalence as string} />
     </>
   );
@@ -144,7 +143,6 @@ function PathwayCardCompact({ entity }: { entity: Entity }) {
   const m = entity.metadata;
   return (
     <>
-      <MetaRow label="Reactome" value={(m.reactome_id as string) ?? entity.primaryId} />
       <MetaRow label="Reactions" value={m.reaction_count as number} />
     </>
   );
@@ -154,7 +152,6 @@ function ProteinCardCompact({ entity }: { entity: Entity }) {
   const m = entity.metadata;
   return (
     <>
-      <MetaRow label="UniProt" value={entity.primaryId} />
       <MetaRow label="Location" value={m.subcellularLocation as string} />
     </>
   );
