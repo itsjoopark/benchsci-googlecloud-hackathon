@@ -92,8 +92,10 @@
 }
 
 .entity-filter-dot {
+  display: inline-block;
   width: 8px;
   height: 8px;
+  flex: 0 0 8px;
   border-radius: 50%;
 }
 
