@@ -8,7 +8,7 @@ import {
   forceCollide,
 } from "d3-force";
 import type { SimulationNodeDatum, SimulationLinkDatum } from "d3-force";
-import type { Entity, GraphEdge, PathNode } from "../types";
+import type { Entity, GraphEdge } from "../types";
 import { ENTITY_COLORS } from "../types";
 import "./GraphCanvas.css";
 
@@ -18,12 +18,10 @@ interface Props {
   selectedEntityId: string | null;
   selectedEdgeId: string | null;
   expandedNodes: string[];
-  path: PathNode[];
   historyEdgeIds: Set<string>;
   onNodeSelect: (nodeId: string) => void;
   onNodeExpand: (nodeId: string) => void;
   onEdgeSelect: (edgeId: string) => void;
-  onAddToPath: (nodeId: string) => void;
   disabledNodeIds: Set<string>;
 }
 
@@ -407,12 +405,10 @@ export default function GraphCanvas({
   selectedEntityId,
   selectedEdgeId,
   expandedNodes,
-  path,
   historyEdgeIds,
   onNodeSelect,
   onNodeExpand,
   onEdgeSelect,
-  onAddToPath,
   disabledNodeIds,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -424,9 +420,7 @@ export default function GraphCanvas({
   const onNodeSelectRef = useRef(onNodeSelect);
   const onNodeExpandRef = useRef(onNodeExpand);
   const onEdgeSelectRef = useRef(onEdgeSelect);
-  const onAddToPathRef = useRef(onAddToPath);
   const disabledNodeIdsRef = useRef(disabledNodeIds);
-  const pathIds = new Set(path.map((p) => p.entityId));
 
   // Position persistence for smooth incremental updates (expand)
   const nodePositionsRef = useRef<Map<string, { x: number; y: number }>>(
@@ -440,7 +434,6 @@ export default function GraphCanvas({
   onNodeSelectRef.current = onNodeSelect;
   onNodeExpandRef.current = onNodeExpand;
   onEdgeSelectRef.current = onEdgeSelect;
-  onAddToPathRef.current = onAddToPath;
   disabledNodeIdsRef.current = disabledNodeIds;
 
   useEffect(() => {
@@ -657,17 +650,6 @@ export default function GraphCanvas({
         hitMesh.add(badge);
       }
 
-      // Path highlight
-      if (pathIds.has(node.id)) {
-        const ringGeo = createBorderRing(
-          NODE_RADIUS + BORDER_INNER_OFFSET,
-          NODE_RADIUS + BORDER_OUTER_OFFSET
-        );
-        const ringMat = new THREE.MeshBasicMaterial({ color: 0xf39c12 });
-        const ring = new THREE.Mesh(ringGeo, ringMat);
-        ring.position.z = 0.5;
-        hitMesh.add(ring);
-      }
 
       // Label
       const texture = createLabelTexture(node.label);
@@ -990,15 +972,6 @@ export default function GraphCanvas({
       }
     };
 
-    // Right-click → add to path
-    const handleContextMenu = (e: MouseEvent) => {
-      e.preventDefault();
-      const node = getIntersectedNode(e);
-      if (node) {
-        onAddToPathRef.current(node.userData.nodeId as string);
-      }
-    };
-
     // Scroll → zoom
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -1011,7 +984,6 @@ export default function GraphCanvas({
     container.addEventListener("mouseleave", handleMouseLeave);
     container.addEventListener("mousedown", handleMouseDown);
     container.addEventListener("mouseup", handleMouseUp);
-    container.addEventListener("contextmenu", handleContextMenu);
     container.addEventListener("wheel", handleWheel, { passive: false });
 
     // Resize
@@ -1056,7 +1028,6 @@ export default function GraphCanvas({
       container.removeEventListener("mouseleave", handleMouseLeave);
       container.removeEventListener("mousedown", handleMouseDown);
       container.removeEventListener("mouseup", handleMouseUp);
-      container.removeEventListener("contextmenu", handleContextMenu);
       container.removeEventListener("wheel", handleWheel);
       resizeObs.disconnect();
       // Dispose node sprites and labels (cached textures are preserved across renders)

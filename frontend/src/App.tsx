@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useMemo } from "react";
-import type { Entity, GraphEdge, PathNode, EntityFilterValue } from "./types";
+import type { Entity, GraphEdge, EntityFilterValue } from "./types";
 import { jsonPayloadToGraph } from "./data/adapters";
 import { queryEntity, expandEntity } from "./data/dataService";
 import type { OverviewStreamRequestPayload } from "./types/api";
@@ -25,7 +25,6 @@ function App() {
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<GraphEdge | null>(null);
-  const [path, setPath] = useState<PathNode[]>([]);
   const [graphKey, setGraphKey] = useState(0);
   const [expandedNodes, setExpandedNodes] = useState<string[]>([]);
   const [entityFilter, setEntityFilter] = useState<EntityFilterValue>("all");
@@ -157,7 +156,6 @@ function App() {
         setEntities(finalEntities);
         setEdges(finalEdges);
         setSelectedEdge(null);
-        setPath([]);
         setExpandedNodes(centerId ? [centerId] : []);
         setExpansionSnapshots(new Map());
         setCenterNodeId(payload.center_node_id ?? "");
@@ -190,7 +188,6 @@ function App() {
     (entity: Entity) => {
       setSelectedEntity(entity);
       setSelectedEdge(null);
-      setPath([]);
       setExpandedNodes([]);
       setExpansionSnapshots(new Map());
       addToSelectionHistory(entity);
@@ -358,7 +355,6 @@ function App() {
           setExpansionSnapshots(new Map());
           setSelectedEntity(null);
           setSelectedEdge(null);
-          setPath([]);
           setGraphKey((k) => k + 1);
           return kept;
         }
@@ -412,36 +408,6 @@ function App() {
     [edges]
   );
 
-  const handleAddToPath = useCallback(
-    (nodeId: string) => {
-      if (disabledNodeIds.has(nodeId)) return;
-      const entity = getEntityById(entities, nodeId);
-      if (!entity) return;
-
-      const connEdge =
-        path.length > 0
-          ? edges.find(
-              (e) =>
-                (e.source === path[path.length - 1].entityId &&
-                  e.target === nodeId) ||
-                (e.target === path[path.length - 1].entityId &&
-                  e.source === nodeId)
-            )
-          : undefined;
-
-      setPath((prev) => [
-        ...prev,
-        {
-          entityId: entity.id,
-          entityName: entity.name,
-          entityType: entity.type,
-          edgePredicate: connEdge?.label ?? connEdge?.predicate,
-        },
-      ]);
-    },
-    [path, edges, entities, disabledNodeIds]
-  );
-
   const handleFit = useCallback(() => setGraphKey((k) => k + 1), []);
 
   const handleResetExploration = useCallback(() => {
@@ -455,7 +421,6 @@ function App() {
     setExpandedNodes(snapshot.centerNodeId ? [snapshot.centerNodeId] : []);
     setExpansionSnapshots(new Map());
     setSelectionHistory([]);
-    setPath([]);
     setSelectedEdge(null);
     setOverviewHistory([]);
     const center = snapshot.entities.find((e) => e.id === snapshot.centerNodeId);
@@ -612,7 +577,7 @@ function App() {
             </svg>
           </button>
 
-          <Toolbar onFit={handleFit} disabled={!graphLoaded} pathLength={path.length} onClearPath={() => setPath([])} canReset={graphLoaded && expandedNodes.length > 1} onReset={handleResetExploration} />
+          <Toolbar onFit={handleFit} disabled={!graphLoaded} canReset={graphLoaded && expandedNodes.length > 1} onReset={handleResetExploration} />
 
           {graphLoaded && (
             <EntityFilter entityFilter={entityFilter} onEntityFilterChange={setEntityFilter} />
@@ -676,12 +641,10 @@ function App() {
           }
           selectedEdgeId={selectedEdge?.id ?? null}
           expandedNodes={expandedNodes}
-          path={path}
           historyEdgeIds={historyEdgeIds}
           onNodeSelect={handleNodeSelect}
           onNodeExpand={handleNodeExpand}
           onEdgeSelect={handleEdgeSelect}
-          onAddToPath={handleAddToPath}
           disabledNodeIds={disabledNodeIds}
         />
 

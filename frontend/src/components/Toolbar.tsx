@@ -3,19 +3,13 @@ import "./Toolbar.css";
 interface Props {
   onFit: () => void;
   disabled: boolean;
-  pathLength: number;
-  onClearPath: () => void;
   canReset: boolean;
   onReset: () => void;
 }
 
-export default function Toolbar({ pathLength, canReset, onReset }: Props) {
+export default function Toolbar({ canReset, onReset }: Props) {
   return (
     <div className="toolbar">
-      {pathLength > 0 && (
-        <span className="toolbar-path-count">{pathLength} in path</span>
-      )}
-
       {canReset && (
         <button className="toolbar-reset-btn" onClick={onReset} title="Reset to initial query">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -42,15 +36,6 @@ export default function Toolbar({ pathLength, canReset, onReset }: Props) {
             <line x1="3" y1="21" x2="10" y2="14" />
           </svg>
           Double-click to expand
-        </span>
-        <span className="toolbar-hint-separator">&middot;</span>
-        <span className="toolbar-hint-item">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="1" />
-            <circle cx="19" cy="12" r="1" />
-            <circle cx="5" cy="12" r="1" />
-          </svg>
-          Right-click to path
         </span>
       </div>
     </div>
