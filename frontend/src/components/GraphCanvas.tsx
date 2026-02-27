@@ -57,7 +57,6 @@ const EDGE_COLOR = 0x8a9198;
 const EDGE_GLOW_WIDTH = 4;
 const NODE_RADIUS = 14;
 const BG_COLOR = 0xf0eee9;
-const BORDER_OUTER_OFFSET = 2.5;
 
 // Canvas-rendered node texture constants
 const NODE_TEXTURE_SIZE = 256;
@@ -350,7 +349,6 @@ export default function GraphCanvas({
 
     // Path mode: compute edges connecting consecutive path nodes
     const currentPathNodeIds = pathNodeIdsRef.current ?? [];
-    const pathNodeSet = new Set(currentPathNodeIds);
     const pathEdgeIds = new Set<string>();
     if (currentPathNodeIds.length > 1) {
       for (let i = 1; i < currentPathNodeIds.length; i++) {
