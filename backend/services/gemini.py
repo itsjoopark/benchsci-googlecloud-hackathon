@@ -9,23 +9,17 @@ from backend.models.gemini import ExtractedEntity
 
 logger = logging.getLogger(__name__)
 
-_client: Client | None = None
-
-
-def _get_client() -> Client:
-    global _client
-    if _client is None:
-        url = settings.GEMINI_ENDPOINT_URL.rstrip("/")
-        kwargs = {}
-        if settings.GEMINI_APP_KEY:
-            # httpx_kwargs.params attaches query params to every httpx request
-            kwargs["httpx_kwargs"] = {"params": {"key": settings.GEMINI_APP_KEY}}
-        _client = Client(url, **kwargs)
-    return _client
+def _create_client() -> Client:
+    url = settings.GEMINI_ENDPOINT_URL.rstrip("/")
+    kwargs = {}
+    if settings.GEMINI_APP_KEY:
+        # Append app key to every request to the deployed extraction app.
+        kwargs["httpx_kwargs"] = {"params": {"key": settings.GEMINI_APP_KEY}}
+    return Client(url, **kwargs)
 
 
 async def extract_entity(query: str) -> ExtractedEntity:
-    client = _get_client()
+    client = _create_client()
 
     # gradio_client.predict is synchronous — run in thread to avoid blocking
     raw = await asyncio.to_thread(
