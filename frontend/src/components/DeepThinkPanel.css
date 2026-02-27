@@ -1,247 +1,445 @@
-.deep-think-panel {
-  border-bottom: 1px solid var(--color-border);
-  padding: var(--space-md) var(--space-lg) var(--space-lg);
+/* ── Panel shell ────────────────────────────────────────────────── */
+.dt-panel {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
   background:
-    radial-gradient(110% 70% at 10% 0%, rgba(155, 89, 182, 0.08), transparent 58%),
-    radial-gradient(80% 60% at 90% 0%, rgba(243, 156, 18, 0.06), transparent 55%),
+    radial-gradient(110% 70% at 10% 0%, rgba(155, 89, 182, 0.07), transparent 58%),
+    radial-gradient(80% 60% at 90% 0%, rgba(243, 156, 18, 0.05), transparent 55%),
     var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
+  border-top: 1px solid var(--glass-border);
+}
+
+/* When open the panel takes a fixed height so the middle section shrinks */
+.dt-panel--open {
+  height: 360px;
+}
+
+/* ── Toggle header button ───────────────────────────────────────── */
+.dt-toggle-header {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--space-md) var(--space-lg) var(--space-sm);
+  border-bottom: 1px solid var(--glass-border);
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.dt-toggle-header:hover {
+  background: rgba(155, 89, 182, 0.04);
+}
+
+.dt-header__title-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
+}
+
+.dt-header__icon {
+  display: inline-flex;
+  align-items: center;
+  color: #9b59b6;
+  opacity: 0.85;
   flex-shrink: 0;
 }
 
-.deep-think-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-sm);
-}
-
-.deep-think-title-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.deep-think-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #9b59b6;
-  opacity: 0.85;
-}
-
-.deep-think-title {
+.dt-header__title {
   font-size: var(--font-size-base);
   font-weight: 700;
   letter-spacing: 0.01em;
   color: var(--color-text-primary);
+  margin: 0;
+  flex: 1;
 }
 
-.deep-think-status {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-}
-
-.deep-think-status.done {
+.dt-header__chevron {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  color: #1e7d47;
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
 }
 
-.deep-think-header-actions {
+.dt-header__path {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0;
+}
+
+/* ── Chat body (shown when open) ────────────────────────────────── */
+.dt-chat-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Messages list ──────────────────────────────────────────────── */
+.dt-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-md) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── Individual message ─────────────────────────────────────────── */
+.dt-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  max-width: 100%;
+}
+
+.dt-message--user {
+  flex-direction: row-reverse;
+}
+
+.dt-message__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(155, 89, 182, 0.12);
+  color: #9b59b6;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.dt-message__bubble {
+  max-width: calc(100% - 30px);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.dt-message--user .dt-message__bubble {
+  align-items: flex-end;
+}
+
+.dt-message__text {
+  display: inline-block;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+
+.dt-message--assistant .dt-message__text {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--glass-border);
+  color: var(--color-text-primary);
+  border-radius: 3px 12px 12px 12px;
+}
+
+.dt-message--user .dt-message__text {
+  background: rgba(155, 89, 182, 0.13);
+  border: 1px solid rgba(155, 89, 182, 0.22);
+  color: var(--color-text-primary);
+  border-radius: 12px 3px 12px 12px;
+}
+
+/* ── Message footer (confidence + references) ───────────────────── */
+.dt-message__footer {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
+  padding: 0 2px;
 }
 
-.deep-think-reset {
-  background: none;
-  border: none;
+/* ── Confidence badge ───────────────────────────────────────────── */
+.dt-confidence {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 99px;
+  cursor: default;
+}
+
+.dt-confidence__label {
+  font-weight: 500;
+  opacity: 0.8;
+  letter-spacing: 0.02em;
+}
+
+.dt-confidence__score {
+  font-weight: 700;
+}
+
+.dt-confidence--high {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+  border: 1px solid rgba(22, 163, 74, 0.28);
+}
+
+.dt-confidence--medium {
+  background: rgba(217, 119, 6, 0.10);
+  color: #b45309;
+  border: 1px solid rgba(217, 119, 6, 0.26);
+}
+
+.dt-confidence--low {
+  background: rgba(220, 38, 38, 0.09);
+  color: #b91c1c;
+  border: 1px solid rgba(220, 38, 38, 0.22);
+}
+
+/* ── Inline citation hover ──────────────────────────────────────── */
+.dt-inline-cite {
+  position: relative;
+  display: inline;
+}
+
+.dt-inline-cite__trigger {
+  color: #2c5f91;
+  font-size: 0.85em;
   cursor: pointer;
-  font-size: 16px;
-  color: var(--color-text-secondary);
-  line-height: 1;
-  padding: 2px 4px;
-  border-radius: var(--radius-sm);
-  transition: color 0.15s;
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
 }
 
-.deep-think-reset:hover {
+.dt-inline-cite__popup {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  min-width: 240px;
+  max-width: 300px;
+  background: #fff;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.13);
+  padding: 8px 10px;
+  /* pointer-events must be auto so links inside are clickable */
+  pointer-events: auto;
+}
+
+/* Invisible bridge that fills the 5px gap between popup bottom and trigger,
+   keeping the hover chain alive as the cursor moves between them. */
+.dt-inline-cite__popup::before {
+  content: "";
+  position: absolute;
+  bottom: -6px;
+  left: 0;
+  right: 0;
+  height: 6px;
+}
+
+.dt-inline-cite:hover .dt-inline-cite__popup {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.dt-inline-cite__paper {
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
   color: var(--color-text-primary);
 }
 
-.deep-think-path-summary {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-sm);
-  font-style: italic;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.dt-inline-cite__paper a {
+  color: #2c5f91;
+  text-decoration: none;
 }
 
-.deep-think-analyze-btn {
+.dt-inline-cite__paper a:hover {
+  text-decoration: underline;
+}
+
+/* ── References hover popup ─────────────────────────────────────── */
+.dt-references {
+  position: relative;
+  display: inline-flex;
+}
+
+.dt-references__trigger {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 2px 7px;
+  border-radius: 99px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.5);
+  user-select: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.dt-references:hover .dt-references__trigger,
+.dt-references__trigger:focus {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(155, 89, 182, 0.35);
+}
+
+.dt-references__popup {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  width: 280px;
+  background: #fff;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.13);
+  padding: 10px 12px;
+}
+
+.dt-references:hover .dt-references__popup {
+  display: block;
+}
+
+.dt-references__heading {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+  margin: 0 0 6px;
+}
+
+.dt-references__list {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.dt-references__list li {
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+  color: var(--color-text-primary);
+}
+
+.dt-references__list a {
+  color: #2c5f91;
+  text-decoration: none;
+}
+
+.dt-references__list a:hover {
+  text-decoration: underline;
+}
+
+/* ── Streaming cursor ───────────────────────────────────────────── */
+@keyframes dt-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+.dt-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 0.85em;
+  background: currentColor;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  animation: dt-blink 0.9s step-end infinite;
+}
+
+/* ── Input area ─────────────────────────────────────────────────── */
+.dt-input-area {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: var(--space-sm) var(--space-lg) var(--space-md);
+  border-top: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.dt-textarea {
+  flex: 1;
+  min-height: 38px;
+  max-height: 120px;
+  resize: none;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.72);
+  padding: 8px 10px;
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  color: var(--color-text-primary);
+  line-height: 1.45;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.dt-textarea::placeholder {
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+}
+
+.dt-textarea:focus {
+  border-color: rgba(155, 89, 182, 0.45);
+  box-shadow: 0 0 0 2px rgba(155, 89, 182, 0.10);
+}
+
+.dt-textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dt-send-btn {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(155, 89, 182, 0.35);
+  background: rgba(155, 89, 182, 0.10);
+  color: #7d3c98;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(155, 89, 182, 0.4);
-  background: rgba(155, 89, 182, 0.08);
-  color: #7d3c98;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
+  justify-content: center;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
-  width: 100%;
-  justify-content: center;
 }
 
-.deep-think-analyze-btn:hover {
-  background: rgba(155, 89, 182, 0.15);
-  border-color: rgba(155, 89, 182, 0.6);
+.dt-send-btn:hover:not(:disabled) {
+  background: rgba(155, 89, 182, 0.18);
+  border-color: rgba(155, 89, 182, 0.55);
 }
 
-.deep-think-loading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: var(--space-sm) 0;
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
+.dt-send-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
-.deep-think-spinner {
+@keyframes dt-spin {
+  to { transform: rotate(360deg); }
+}
+
+.dt-send-spinner {
+  display: inline-block;
   width: 14px;
   height: 14px;
   border: 2px solid rgba(155, 89, 182, 0.25);
   border-top-color: #9b59b6;
   border-radius: 50%;
-  animation: deep-think-spin 0.75s linear infinite;
-  flex-shrink: 0;
-}
-
-@keyframes deep-think-spin {
-  to { transform: rotate(360deg); }
-}
-
-.deep-think-citations {
-  margin-bottom: var(--space-sm);
-}
-
-.deep-think-citations-title {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 6px;
-}
-
-.deep-think-citations-list {
-  list-style: decimal;
-  padding-left: 18px;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.deep-think-citation-item {
-  font-size: var(--font-size-xs);
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.deep-think-citation-link {
-  color: #2c5f91;
-  text-decoration: none;
-  line-height: 1.4;
-}
-
-a.deep-think-citation-link:hover {
-  text-decoration: underline;
-}
-
-.deep-think-citation-year {
-  color: var(--color-text-secondary);
-  font-size: 10px;
-  flex-shrink: 0;
-}
-
-.deep-think-body {
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.68);
-  min-height: 80px;
-  padding: var(--space-md);
-  position: relative;
-  overflow: hidden;
-  margin-bottom: var(--space-sm);
-}
-
-.deep-think-body.streaming::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    110deg,
-    transparent 0%,
-    transparent 42%,
-    rgba(255, 255, 255, 0.44) 50%,
-    transparent 58%,
-    transparent 100%
-  );
-  transform: translateX(-100%);
-  animation: deep-think-sheen 1.65s linear infinite;
-  pointer-events: none;
-}
-
-@keyframes deep-think-sheen {
-  to { transform: translateX(100%); }
-}
-
-.deep-think-text,
-.deep-think-placeholder {
-  font-size: var(--font-size-sm);
-  line-height: 1.6;
-  color: var(--color-text-secondary);
-  white-space: pre-wrap;
-  position: relative;
-  z-index: 1;
-}
-
-.deep-think-text {
-  color: var(--color-text-primary);
-}
-
-.deep-think-error-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-sm);
-  margin-top: var(--space-sm);
-}
-
-.deep-think-error {
-  font-size: var(--font-size-xs);
-  color: #9b1c1c;
-}
-
-.deep-think-retry {
-  border: 1px solid var(--color-border);
-  background: #fff;
-  border-radius: var(--radius-sm);
-  padding: 4px 8px;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-primary);
-  cursor: pointer;
-}
-
-.deep-think-retry:hover {
-  background: #f5f5f5;
+  animation: dt-spin 0.75s linear infinite;
 }

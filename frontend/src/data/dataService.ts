@@ -1,5 +1,7 @@
 import type { Entity } from "../types";
 import type {
+  DeepThinkChatRequestPayload,
+  DeepThinkConfidence,
   DeepThinkPaper,
   DeepThinkRequestPayload,
   JsonGraphPayload,
@@ -293,6 +295,87 @@ export async function streamDeepThink(
   } else if (finalBlock.event === "error") {
     handlers.onError?.({
       message: String(finalBlock.data.message ?? "Deep Think generation failed."),
+      partial_text: finalBlock.data.partial_text as string | undefined,
+    });
+  }
+}
+
+interface DeepThinkChatHandlers {
+  onStart?: (payload: { path_summary: string }) => void;
+  onPapersLoaded?: (payload: { papers: DeepThinkPaper[]; count: number }) => void;
+  onDelta?: (payload: { text: string }) => void;
+  onDone?: (payload: { text: string; confidence?: DeepThinkConfidence }) => void;
+  onError?: (payload: { message: string; partial_text?: string }) => void;
+  signal?: AbortSignal;
+}
+
+export async function streamDeepThinkChat(
+  request: DeepThinkChatRequestPayload,
+  handlers: DeepThinkChatHandlers
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/deep-think/chat/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+    signal: handlers.signal,
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "Unknown error");
+    throw new Error(`Deep Think chat failed (${res.status}): ${detail}`);
+  }
+
+  if (!res.body) throw new Error("Empty response body.");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split("\n\n");
+    buffer = blocks.pop() ?? "";
+
+    for (const block of blocks) {
+      const parsed = parseSseBlock(block.trim());
+      if (!parsed) continue;
+
+      if (parsed.event === "start") {
+        handlers.onStart?.({ path_summary: String(parsed.data.path_summary ?? "") });
+      } else if (parsed.event === "papers_loaded") {
+        handlers.onPapersLoaded?.({
+          papers: (parsed.data.papers as DeepThinkPaper[]) ?? [],
+          count: Number(parsed.data.count ?? 0),
+        });
+      } else if (parsed.event === "delta") {
+        handlers.onDelta?.({ text: String(parsed.data.text ?? "") });
+      } else if (parsed.event === "done") {
+        handlers.onDone?.({
+          text: String(parsed.data.text ?? ""),
+          confidence: parsed.data.confidence as DeepThinkConfidence | undefined,
+        });
+      } else if (parsed.event === "error") {
+        handlers.onError?.({
+          message: String(parsed.data.message ?? "Generation failed."),
+          partial_text: parsed.data.partial_text as string | undefined,
+        });
+      }
+    }
+  }
+
+  const finalBlock = parseSseBlock(buffer.trim());
+  if (!finalBlock) return;
+  if (finalBlock.event === "done") {
+    handlers.onDone?.({
+      text: String(finalBlock.data.text ?? ""),
+      confidence: finalBlock.data.confidence as DeepThinkConfidence | undefined,
+    });
+  } else if (finalBlock.event === "error") {
+    handlers.onError?.({
+      message: String(finalBlock.data.message ?? "Generation failed."),
       partial_text: finalBlock.data.partial_text as string | undefined,
     });
   }

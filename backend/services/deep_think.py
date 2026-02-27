@@ -10,7 +10,13 @@ from typing import Iterator
 from google.genai import types as genai_types
 
 from backend.config import settings
-from backend.models.deep_think import DeepThinkEdge, DeepThinkPathNode, DeepThinkRequest
+from backend.models.deep_think import (
+    DeepThinkChatMessage,
+    DeepThinkChatRequest,
+    DeepThinkEdge,
+    DeepThinkPathNode,
+    DeepThinkRequest,
+)
 from backend.services.overview import _get_genai_client
 
 logger = logging.getLogger(__name__)
@@ -115,18 +121,26 @@ def _build_deep_think_prompt(
 
     papers_section = "\n\n---\n\n".join(paper_lines) if paper_lines else "No papers available."
 
-    return f"""You are a biomedical knowledge graph explainer with deep expertise.
+    return f"""You are an expert biomedical scientist analyzing a multi-hop knowledge graph path.
 
-Path to analyze:
+## Path
 {path_chain}
 
-Supporting papers (highest relevance first):
+## Supporting Literature
 {papers_section}
 
-Task:
-Explain why these entities are connected along this path. For each link, describe the biological mechanism or association that connects them, citing specific papers by their titles. Keep the explanation focused and grounded in the provided evidence (150-300 words). If evidence is weak or absent for a link, say so explicitly. Do not invent facts.
+## Your Task
+Write a detailed scientific explanation of how these entities are connected along this path. Structure your response as follows:
 
-End your response with: "Cited papers: [list titles]"
+1. **Overall connection**: One paragraph summarizing the high-level biological relationship across the entire path.
+2. **Step-by-step mechanistic breakdown**: For each consecutive pair of entities in the path, dedicate a paragraph explaining the specific molecular mechanism, pathway interaction, or clinical association that links them. Reference specific findings from the provided papers (cite by title).
+3. **Strength of evidence**: Briefly note where the evidence is strong vs. where it is circumstantial or inferred.
+
+Rules:
+- Ground every claim in the provided papers. Do not invent facts.
+- If evidence for a specific link is absent, explicitly state that.
+- Aim for 300-500 words total.
+- End with: "Key references: [comma-separated list of cited paper titles]"
 """.strip()
 
 
@@ -154,6 +168,22 @@ Respond concisely with: VERIFIED (no issues found) or ISSUES FOUND: [list proble
 """.strip()
 
 
+def _deep_think_model_candidates() -> list[str]:
+    """Primary deep-think model, falling back to the overview model then flash."""
+    seen: set[str] = set()
+    candidates: list[str] = []
+    for m in [
+        settings.GEMINI_DEEP_THINK_MODEL.strip(),
+        settings.GEMINI_OVERVIEW_MODEL.strip(),
+        "gemini-2.5-flash",
+        "gemini-2.0-flash-001",
+    ]:
+        if m and m not in seen:
+            seen.add(m)
+            candidates.append(m)
+    return candidates
+
+
 def _sse(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -163,8 +193,9 @@ def _run_verification(analysis: str, papers: list[dict]) -> None:
     try:
         client = _get_genai_client()
         prompt = _build_verification_prompt(analysis, papers)
+        verify_model = _deep_think_model_candidates()[0]
         response = client.models.generate_content(
-            model=settings.GEMINI_DEEP_THINK_MODEL,
+            model=verify_model,
             contents=[
                 genai_types.Content(
                     role="user",
@@ -231,25 +262,42 @@ def stream_deep_think_events(request: DeepThinkRequest) -> Iterator[str]:
 
     yield _sse("papers_loaded", {"papers": paper_meta, "count": len(paper_meta)})
 
-    # Stream analysis from Gemini Pro
+    # Stream analysis with model fallback
     full_text = ""
     try:
         client = _get_genai_client()
         prompt = _build_deep_think_prompt(path, papers, edges)
-
-        stream = client.models.generate_content_stream(
-            model=settings.GEMINI_DEEP_THINK_MODEL,
-            contents=[
-                genai_types.Content(
-                    role="user",
-                    parts=[genai_types.Part(text=prompt)],
-                )
-            ],
-            config=genai_types.GenerateContentConfig(
-                temperature=0.3,
-                max_output_tokens=600,
-            ),
+        config = genai_types.GenerateContentConfig(
+            temperature=0.3,
+            max_output_tokens=1500,
         )
+        contents = [
+            genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text=prompt)],
+            )
+        ]
+
+        import itertools
+
+        stream = None
+        last_exc: Exception | None = None
+        for model_name in _deep_think_model_candidates():
+            try:
+                candidate_stream = client.models.generate_content_stream(
+                    model=model_name,
+                    contents=contents,
+                    config=config,
+                )
+                first_chunk = next(candidate_stream)
+                stream = itertools.chain([first_chunk], candidate_stream)
+                break
+            except Exception as exc:
+                last_exc = exc
+                logger.warning("Deep Think model unavailable: %s (%s)", model_name, exc)
+
+        if stream is None:
+            raise last_exc or RuntimeError("No Deep Think model candidates available")
 
         for chunk in stream:
             text = getattr(chunk, "text", None)
@@ -267,7 +315,7 @@ def stream_deep_think_events(request: DeepThinkRequest) -> Iterator[str]:
         yield _sse(
             "error",
             {
-                "message": "AI analysis generation failed.",
+                "message": f"AI analysis generation failed: {type(exc).__name__}: {exc}",
                 "partial_text": full_text,
                 "detail": str(exc),
             },
@@ -282,3 +330,261 @@ def stream_deep_think_events(request: DeepThinkRequest) -> Iterator[str]:
     ).start()
 
     yield _sse("done", {"text": full_text})
+
+
+# ── Chat feature ──────────────────────────────────────────────────────────────
+
+_COMPRESSION_THRESHOLD = 20_000  # characters before we invoke Flash to trim
+
+
+def _build_papers_context(papers: list[dict], edge_fallback: list[DeepThinkEdge]) -> str:
+    """Format S2 papers (or edge evidence fallback) into a single context string."""
+    if papers:
+        sections = []
+        for i, p in enumerate(papers):
+            title = p.get("title") or "Untitled"
+            year = p.get("year") or "n/a"
+            abstract = p.get("abstract") or ""
+            tldr_obj = p.get("tldr") or {}
+            tldr = tldr_obj.get("text") or "" if isinstance(tldr_obj, dict) else ""
+            sections.append(
+                f"[{i + 1}] {title} ({year})\n"
+                f"Abstract: {abstract}\n"
+                f"{'Summary: ' + tldr if tldr else ''}"
+            )
+        return "\n\n".join(sections)
+
+    # Fallback: edge evidence snippets
+    lines: list[str] = []
+    for edge in edge_fallback:
+        for ev in edge.evidence[:3]:
+            if ev.title or ev.snippet:
+                lines.append(f"- {ev.title or 'n/a'}: {ev.snippet}")
+    return "\n".join(lines) if lines else "No supporting literature available."
+
+
+def _maybe_compress_context(
+    papers_context: str,
+    question: str,
+    path: list[DeepThinkPathNode] | None = None,
+) -> str:
+    """If the paper context is large, use the Pro model to extract relevant passages.
+
+    Uses the primary deep-think model (Pro) rather than Flash to preserve
+    scientific nuance.  The user's question and path are included so the
+    compression is query-aware.
+    """
+    if len(papers_context) <= _COMPRESSION_THRESHOLD:
+        return papers_context
+
+    path_chain = (
+        " → ".join(f"{n.entity_name} ({n.entity_type})" for n in path)
+        if path
+        else "unknown path"
+    )
+
+    prompt = (
+        f"A researcher is exploring this biomedical knowledge-graph path:\n"
+        f"PATH: {path_chain}\n\n"
+        f"Their specific question is:\n"
+        f"QUESTION: {question}\n\n"
+        "Below are supporting literature abstracts for the entities in this path. "
+        "Your task: extract and summarize ONLY the findings that are directly relevant "
+        "to answering the researcher's question about this path. "
+        "Preserve paper numbers, titles, and the specific mechanistic details that bear "
+        "on the question. Be concise (max 3 000 words). Omit papers with no relevance.\n\n"
+        f"Papers:\n{papers_context[:80_000]}"
+    )
+    try:
+        client = _get_genai_client()
+        # Use the Pro model for compression to retain scientific precision
+        compress_model = _deep_think_model_candidates()[0]
+        resp = client.models.generate_content(
+            model=compress_model,
+            contents=[genai_types.Content(role="user", parts=[genai_types.Part(text=prompt)])],
+            config=genai_types.GenerateContentConfig(temperature=0.1, max_output_tokens=4_000),
+        )
+        compressed = getattr(resp, "text", "") or ""
+        logger.info("Context compressed via %s: %d→%d chars", compress_model, len(papers_context), len(compressed))
+        return compressed if compressed else papers_context[:_COMPRESSION_THRESHOLD]
+    except Exception as exc:
+        logger.warning("Context compression failed, truncating: %s", exc)
+        return papers_context[:_COMPRESSION_THRESHOLD]
+
+
+def _review_response(question: str, papers_context: str, response: str) -> dict:
+    """Fast reviewer LLM that returns a confidence score 1-10."""
+    import re
+
+    prompt = (
+        f"You are a scientific accuracy reviewer.\n\n"
+        f"User question: {question}\n\n"
+        f"Supporting evidence (papers):\n{papers_context[:6_000]}\n\n"
+        f"AI response:\n{response}\n\n"
+        "Evaluate whether every claim in the AI response is grounded in the provided "
+        "papers and is scientifically accurate. Consider: (1) factual grounding, "
+        "(2) scientific accuracy, (3) completeness.\n\n"
+        "Reply in EXACTLY this format:\n"
+        "CONFIDENCE: X/10\n"
+        "REASONING: <one sentence>"
+    )
+    try:
+        client = _get_genai_client()
+        resp = client.models.generate_content(
+            model=settings.GEMINI_OVERVIEW_MODEL,
+            contents=[genai_types.Content(role="user", parts=[genai_types.Part(text=prompt)])],
+            config=genai_types.GenerateContentConfig(temperature=0.1, max_output_tokens=150),
+        )
+        text = getattr(resp, "text", "") or ""
+        score_m = re.search(r"CONFIDENCE:\s*(\d+)/10", text)
+        reason_m = re.search(r"REASONING:\s*(.+)", text, re.DOTALL)
+        score = int(score_m.group(1)) if score_m else 5
+        reasoning = reason_m.group(1).strip()[:300] if reason_m else ""
+        return {"score": min(10, max(1, score)), "reasoning": reasoning}
+    except Exception as exc:
+        logger.warning("Reviewer LLM failed: %s", exc)
+        return {"score": 0, "reasoning": ""}
+
+
+def _build_system_instruction(path: list[DeepThinkPathNode], papers_context: str) -> str:
+    path_chain = " → ".join(f"{n.entity_name} ({n.entity_type})" for n in path)
+    return (
+        "You are an expert biomedical scientist helping a researcher explore a knowledge graph.\n\n"
+        f"The researcher has built this exploration path:\nPATH: {path_chain}\n\n"
+        "Supporting literature for the entities in this path:\n"
+        f"{papers_context}\n\n"
+        "Guidelines:\n"
+        "- Answer questions about these entities and their connections with scientific precision.\n"
+        "- Ground every claim in the supporting literature; cite specific paper findings.\n"
+        "- If the evidence is limited or absent, say so explicitly.\n"
+        "- Be clear and concise (150-350 words per answer).\n"
+        "- Do not invent facts beyond what the evidence supports.\n"
+        "- Do not use markdown formatting symbols (no **, ##, etc.); write in plain prose."
+    )
+
+
+def stream_deep_think_chat_events(request: DeepThinkChatRequest) -> Iterator[str]:
+    import itertools
+
+    path = request.path
+    edges = request.edges
+    question = request.question
+    history = request.messages
+
+    path_summary = " → ".join(n.entity_name for n in path)
+    yield _sse("start", {"path_summary": path_summary, "node_count": len(path)})
+
+    # Step 1 — fetch papers
+    try:
+        pmid_weights = _extract_weighted_pmids(path, edges)
+        papers = _fetch_s2_papers(pmid_weights, settings.SEMANTIC_SCHOLAR_API_KEY)
+    except Exception as exc:
+        logger.warning("Paper fetch failed, continuing without S2: %s", exc)
+        papers = []
+        pmid_weights = []
+
+    paper_meta = [
+        {
+            "pmid": pmid_weights[i][0] if i < len(pmid_weights) else None,
+            "title": p.get("title") or "Untitled",
+            "year": p.get("year"),
+            "abstract_snippet": (p.get("abstract") or "")[:250],
+        }
+        for i, p in enumerate(papers)
+    ]
+    # Edge-evidence fallback for metadata
+    if not paper_meta:
+        for edge in edges:
+            for ev in edge.evidence[:2]:
+                if ev.pmid and ev.title:
+                    paper_meta.append(
+                        {"pmid": ev.pmid, "title": ev.title, "year": None, "abstract_snippet": ev.snippet[:250]}
+                    )
+
+    yield _sse("papers_loaded", {"papers": paper_meta, "count": len(paper_meta)})
+
+    # Step 2 — build + optionally compress paper context (Pro, query-aware)
+    papers_context = _build_papers_context(papers, edges)
+    papers_context = _maybe_compress_context(papers_context, question, path)
+
+    # Step 3 — build system instruction and conversation contents
+    system_instruction = _build_system_instruction(path, papers_context)
+
+    contents: list[genai_types.Content] = []
+    # Include last 10 turns to avoid token overflow
+    for msg in history[-20:]:
+        role = "user" if msg.role == "user" else "model"
+        contents.append(
+            genai_types.Content(role=role, parts=[genai_types.Part(text=msg.content)])
+        )
+    contents.append(
+        genai_types.Content(role="user", parts=[genai_types.Part(text=question)])
+    )
+
+    # Step 4 — stream main response (Pro with fallbacks)
+    full_text = ""
+    try:
+        client = _get_genai_client()
+        config = genai_types.GenerateContentConfig(
+            temperature=0.3,
+            max_output_tokens=1_500,
+            system_instruction=system_instruction,
+        )
+
+        stream = None
+        last_exc: Exception | None = None
+        for model_name in _deep_think_model_candidates():
+            try:
+                candidate = client.models.generate_content_stream(
+                    model=model_name,
+                    contents=contents,
+                    config=config,
+                )
+                first_chunk = next(candidate)
+                stream = itertools.chain([first_chunk], candidate)
+                logger.info("Deep Think chat using model: %s", model_name)
+                break
+            except Exception as exc:
+                last_exc = exc
+                logger.warning("Model %s unavailable for chat: %s", model_name, exc)
+
+        if stream is None:
+            raise last_exc or RuntimeError("No model candidates available")
+
+        for chunk in stream:
+            text = getattr(chunk, "text", None)
+            if text is None:
+                text = ""
+                try:
+                    if chunk.candidates[0].content.parts:
+                        text = "".join(p.text or "" for p in chunk.candidates[0].content.parts)
+                except Exception:
+                    pass
+            if text:
+                full_text += text
+                yield _sse("delta", {"text": text})
+
+    except Exception as exc:
+        logger.exception("Deep Think chat: generation failed")
+        yield _sse(
+            "error",
+            {
+                "message": f"Generation failed: {type(exc).__name__}: {exc}",
+                "partial_text": full_text,
+            },
+        )
+        return
+
+    # Step 5 — reviewer (synchronous Flash call, result shown to user)
+    confidence: dict = {"score": 0, "reasoning": ""}
+    try:
+        confidence = _review_response(question, papers_context, full_text)
+        logger.info(
+            "Deep Think reviewer: %d/10 — %s",
+            confidence["score"],
+            confidence["reasoning"][:80],
+        )
+    except Exception as exc:
+        logger.warning("Reviewer failed: %s", exc)
+
+    yield _sse("done", {"text": full_text, "confidence": confidence})

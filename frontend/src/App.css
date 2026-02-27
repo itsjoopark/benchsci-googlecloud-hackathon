@@ -121,10 +121,25 @@
   background: var(--color-bg-elevated);
 }
 
-.right-pane-content {
+.right-pane-inner {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+/* AI Overview — pinned at top, shrinks to its content */
+.right-pane-top {
+  flex-shrink: 0;
+}
+
+/* Entity / edge panels — scrollable middle zone */
+.right-pane-middle {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* ── Left pane header ── */

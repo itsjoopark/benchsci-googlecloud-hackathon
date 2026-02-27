@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     OVERVIEW_EMBEDDING_MODEL_FALLBACK: str = "text-embedding-005"
     VERTEX_VECTOR_ENDPOINT_RESOURCE: str = ""
     VERTEX_VECTOR_DEPLOYED_INDEX_ID: str = ""
-    GEMINI_DEEP_THINK_MODEL: str = "gemini-2.0-pro-exp"
+    GEMINI_DEEP_THINK_MODEL: str = "gemini-2.5-pro"
     SEMANTIC_SCHOLAR_API_KEY: str = ""
     OVERVIEW_HISTORY_LIMIT: int = 3
     OVERVIEW_RAG_TOP_K: int = 20

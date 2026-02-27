@@ -24,3 +24,15 @@ class DeepThinkEdge(BaseModel):
 class DeepThinkRequest(BaseModel):
     path: list[DeepThinkPathNode]
     edges: list[DeepThinkEdge]
+
+
+class DeepThinkChatMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+
+class DeepThinkChatRequest(BaseModel):
+    path: list[DeepThinkPathNode]
+    edges: list[DeepThinkEdge]
+    question: str
+    messages: list[DeepThinkChatMessage] = Field(default_factory=list)

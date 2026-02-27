@@ -428,6 +428,27 @@ function App() {
       .map((e) => e.id)
   );
 
+  // Convert selectionHistory (newest-first) → PathNode[] (oldest-first) for Deep Think
+  const deepThinkPath = useMemo(() => {
+    const ordered = [...selectionHistory].reverse();
+    return ordered.map((entity, i) => {
+      const next = ordered[i + 1];
+      const connEdge = next
+        ? edges.find(
+            (e) =>
+              (e.source === entity.id && e.target === next.id) ||
+              (e.target === entity.id && e.source === next.id)
+          )
+        : undefined;
+      return {
+        entityId: entity.id,
+        entityName: entity.name,
+        entityType: entity.type,
+        edgePredicate: connEdge?.label ?? connEdge?.predicate,
+      };
+    });
+  }, [selectionHistory, edges]);
+
   const evidence = selectedEdge?.evidence ?? [];
   const currentSelectionType: "edge" | "node" | null = selectedEdge
     ? "edge"
@@ -665,7 +686,7 @@ function App() {
       </main>
 
       {/* Right Pane */}
-      {(selectedEdge || selectedEntity || path.length >= 2) && (
+      {(selectedEdge || selectedEntity || selectionHistory.length >= 2) && (
         <aside
           className={`pane pane-right ${rightSidebarCollapsed ? "collapsed" : ""}`}
         >
@@ -687,23 +708,25 @@ function App() {
               </svg>
             </button>
           ) : (
-            <>
-              {path.length >= 2 && (
-                <DeepThinkPanel path={path} edges={edges} />
-              )}
-              <AIOverviewCard
-                key={overviewRequest ? `${overviewRequest.selection_type}:${overviewRequest.edge_id ?? overviewRequest.node_id ?? "none"}` : "overview-none"}
-                request={overviewRequest}
-                onComplete={(item) => {
-                  setOverviewHistory((prev) => {
-                    const deduped = prev.filter(
-                      (existing) => existing.selectionKey !== item.selectionKey
-                    );
-                    return [...deduped, item].slice(-3);
-                  });
-                }}
-              />
-              <div className="right-pane-content">
+            <div className="right-pane-inner">
+              {/* Pinned top: AI Overview */}
+              <div className="right-pane-top">
+                <AIOverviewCard
+                  key={overviewRequest ? `${overviewRequest.selection_type}:${overviewRequest.edge_id ?? overviewRequest.node_id ?? "none"}` : "overview-none"}
+                  request={overviewRequest}
+                  onComplete={(item) => {
+                    setOverviewHistory((prev) => {
+                      const deduped = prev.filter(
+                        (existing) => existing.selectionKey !== item.selectionKey
+                      );
+                      return [...deduped, item].slice(-3);
+                    });
+                  }}
+                />
+              </div>
+
+              {/* Scrollable middle: entity / edge panels */}
+              <div className="right-pane-middle">
                 {selectedEdge ? (
                   <EvidencePanel
                     edge={selectedEdge}
@@ -721,7 +744,12 @@ function App() {
                   />
                 ) : null}
               </div>
-            </>
+
+              {/* Pinned bottom: Unpack This chatbot */}
+              {selectionHistory.length >= 2 && (
+                <DeepThinkPanel path={deepThinkPath} edges={edges} />
+              )}
+            </div>
           )}
         </aside>
       )}

@@ -126,3 +126,20 @@ export interface DeepThinkPaper {
   year?: number;
   abstract_snippet?: string;
 }
+
+export interface DeepThinkConfidence {
+  score: number;
+  reasoning: string;
+}
+
+export interface DeepThinkChatMessagePayload {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface DeepThinkChatRequestPayload {
+  path: DeepThinkPathNodePayload[];
+  edges: DeepThinkEdgePayload[];
+  question: string;
+  messages: DeepThinkChatMessagePayload[];
+}
