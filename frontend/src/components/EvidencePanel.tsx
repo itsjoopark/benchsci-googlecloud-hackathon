@@ -8,10 +8,9 @@ interface Props {
   evidence: EvidenceItem[];
   entities: Entity[];
   onClose: () => void;
-  onCollapse?: () => void;
 }
 
-export default function EvidencePanel({ edge, evidence, entities, onClose, onCollapse }: Props) {
+export default function EvidencePanel({ edge, evidence, entities, onClose }: Props) {
   const source = entities.find((e) => e.id === edge.source);
   const target = entities.find((e) => e.id === edge.target);
   const sourceColor = source?.color ?? (source ? ENTITY_COLORS[source.type] : undefined);
@@ -28,13 +27,6 @@ export default function EvidencePanel({ edge, evidence, entities, onClose, onCol
         <div className="evidence-header-top">
           <h2 className="evidence-title">Evidence</h2>
           <div className="evidence-header-actions">
-            {onCollapse && (
-              <button className="close-btn" onClick={onCollapse} aria-label="Collapse">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M9 18l6-6-6-6" />
-                </svg>
-              </button>
-            )}
             <button className="close-btn" onClick={onClose} aria-label="Close">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M18 6 6 18M6 6l12 12" />

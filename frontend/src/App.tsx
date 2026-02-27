@@ -6,7 +6,6 @@ import { saveSnapshot, loadSnapshot } from "./data/snapshotService";
 import type { GraphSnapshot } from "./data/snapshotService";
 import { getSnapshotIdFromUrl, setSnapshotIdInUrl } from "./utils/urlState";
 import type { OverviewStreamRequestPayload } from "./types/api";
-import SearchBar from "./components/SearchBar";
 import PathBreadcrumb from "./components/PathBreadcrumb";
 import GraphCanvas from "./components/GraphCanvas";
 import EvidencePanel from "./components/EvidencePanel";
@@ -30,18 +29,15 @@ function App() {
   const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<GraphEdge | null>(null);
   const [graphKey, setGraphKey] = useState(0);
+  const [fitRequest, setFitRequest] = useState(0);
   const [expandedNodes, setExpandedNodes] = useState<string[]>([]);
   const [entityFilter, setEntityFilter] = useState<EntityFilterValue>("all");
   const [selectionHistory, setSelectionHistory] = useState<Entity[]>([]);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
   const [chatExpanded, setChatExpanded] = useState(true);
-  const [overviewRatio, setOverviewRatio] = useState(0.75);
-  const rightPaneRef = useRef<HTMLElement>(null);
-  // Keeps a live copy of overviewRatio so the callback closure stays fresh
-  const overviewRatioLiveRef = useRef(0.75);
-  overviewRatioLiveRef.current = overviewRatio;
-  // Saved ratio before "Unpack This" expands the chat (restored on collapse)
-  const savedOverviewRatioRef = useRef(0.75);
+  const [overviewRatio, setOverviewRatio] = useState(0.40);
+  const leftPaneBodyRef = useRef<HTMLDivElement>(null);
+  const [activeRightSection, setActiveRightSection] = useState<'overview' | 'search' | 'deepthink'>('overview');
 
   // Maps an entity ID that was expanded → the entity/edge IDs that were newly added
   const [expansionSnapshots, setExpansionSnapshots] = useState<
@@ -243,7 +239,9 @@ function App() {
         }
 
         setGraphKey((k) => k + 1);
+        setTimeout(() => setFitRequest((n) => n + 1), 600);
         setChatExpanded(false);
+        setSidebarOpen(true);
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") return;
         setQueryError(
@@ -256,39 +254,24 @@ function App() {
     [addToSelectionHistory]
   );
 
-  const handleSearchSelect = useCallback(
-    (entity: Entity) => {
-      setSelectedEntity(entity);
-      setSelectedEdge(null);
-      setExpandedNodes([]);
-      setExpansionSnapshots(new Map());
-      addToSelectionHistory(entity);
-      setSidebarOpen(true);
-      setRightSidebarCollapsed(false);
-      setGraphKey((k) => k + 1);
-    },
-    [addToSelectionHistory]
-  );
-
-  // Path-constrained expansion: only the last expanded node's neighbors are interactive
+  // Focus-based blur: only the selected node and its direct neighbors are fully visible
   const disabledNodeIds = useMemo(() => {
-    if (entities.length === 0 || expandedNodes.length === 0) return new Set<string>();
-    const lastExpandedId = expandedNodes[expandedNodes.length - 1];
-    const activeNodeIds = new Set<string>(expandedNodes);
+    if (entities.length === 0 || !selectedEntity) return new Set<string>();
+    const focusId = selectedEntity.id;
+    const activeNodeIds = new Set<string>([focusId]);
     for (const edge of edges) {
-      if (edge.source === lastExpandedId) activeNodeIds.add(edge.target);
-      if (edge.target === lastExpandedId) activeNodeIds.add(edge.source);
+      if (edge.source === focusId) activeNodeIds.add(edge.target);
+      if (edge.target === focusId) activeNodeIds.add(edge.source);
     }
     const disabled = new Set<string>();
     for (const entity of entities) {
       if (!activeNodeIds.has(entity.id)) disabled.add(entity.id);
     }
     return disabled;
-  }, [entities, edges, expandedNodes]);
+  }, [entities, edges, selectedEntity]);
 
   const handleNodeSelect = useCallback(
     (nodeId: string) => {
-      if (disabledNodeIds.has(nodeId)) return;
       // Toggle: clicking the already-selected node deselects it
       if (selectedEntity?.id === nodeId) {
         setSelectedEntity(null);
@@ -301,9 +284,10 @@ function App() {
         setSelectedEdge(null);
         setSidebarOpen(true);
         setRightSidebarCollapsed(false);
+        addToSelectionHistory(entity);
       }
     },
-    [entities, selectedEntity, disabledNodeIds]
+    [entities, selectedEntity, disabledNodeIds, addToSelectionHistory]
   );
 
   const handleNodeExpand = useCallback(
@@ -314,6 +298,7 @@ function App() {
       // Also add to selection history on double-click expand
       const entity = getEntityById(entities, nodeId);
       if (entity) {
+        setSelectedEntity(entity);
         addToSelectionHistory(entity);
         setSidebarOpen(true);
         setRightSidebarCollapsed(false);
@@ -383,6 +368,7 @@ function App() {
 
         setEntities((prev) => mergeEntities(prev, finalEntities));
         setEdges((prev) => mergeEdges(prev, finalEdges));
+        setTimeout(() => setFitRequest((n) => n + 1), 600);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
         setExpandError(
@@ -482,12 +468,17 @@ function App() {
 
   const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    const pane = rightPaneRef.current;
-    if (!pane) return;
+    const body = leftPaneBodyRef.current;
+    if (!body) return;
+    const PATH_MIN_PX = 60;
+    const OVERVIEW_MIN_PX = 120;
+    const HANDLE_PX = 6;
     const onMouseMove = (ev: MouseEvent) => {
-      const rect = pane.getBoundingClientRect();
-      const ratio = (ev.clientY - rect.top) / rect.height;
-      setOverviewRatio(Math.max(0.15, Math.min(0.90, ratio)));
+      const rect = body.getBoundingClientRect();
+      const minPx = PATH_MIN_PX;
+      const maxPx = rect.height - OVERVIEW_MIN_PX - HANDLE_PX;
+      const clampedPx = Math.max(minPx, Math.min(maxPx, ev.clientY - rect.top));
+      setOverviewRatio(clampedPx / rect.height);
     };
     const onMouseUp = () => {
       window.removeEventListener("mousemove", onMouseMove);
@@ -497,24 +488,7 @@ function App() {
     window.addEventListener("mouseup", onMouseUp);
   }, []);
 
-  const handleDeepThinkOpenChange = useCallback((open: boolean) => {
-    if (open) {
-      savedOverviewRatioRef.current = overviewRatioLiveRef.current;
-      setOverviewRatio(0);
-    } else {
-      setOverviewRatio(savedOverviewRatioRef.current);
-    }
-  }, []);
-
-  // Restore overview ratio when the DeepThink panel is hidden (path drops below 2)
-  const deepThinkPanelVisible = selectionHistory.length >= 2;
-  useEffect(() => {
-    if (!deepThinkPanelVisible && overviewRatioLiveRef.current === 0) {
-      setOverviewRatio(savedOverviewRatioRef.current);
-    }
-  }, [deepThinkPanelVisible]);
-
-  const handleFit = useCallback(() => setGraphKey((k) => k + 1), []);
+  const handleFit = useCallback(() => setFitRequest((n) => n + 1), []);
 
   const handleResetExploration = useCallback(() => {
     const snapshot = initialGraphStateRef.current;
@@ -728,6 +702,19 @@ function App() {
       cooccurrence_score: edge.cooccurrenceScore,
     }));
 
+    // Build chronological path: selectionHistory is newest-first, so reverse it.
+    // selectionHistory only tracks expanded nodes; append selectedEntity at the tail
+    // if it was only single-clicked (not yet in history).
+    const path = [...selectionHistory].reverse().map((e) => ({
+      id: e.id,
+      name: e.name,
+      type: e.type as string,
+    }));
+    const pathTail = path[path.length - 1];
+    if (selectedEntity && (!pathTail || pathTail.id !== selectedEntity.id)) {
+      path.push({ id: selectedEntity.id, name: selectedEntity.name, type: selectedEntity.type as string });
+    }
+
     return {
       selection_type: currentSelectionType,
       edge_id: currentSelectionType === "edge" ? selectedEdge?.id : undefined,
@@ -744,6 +731,7 @@ function App() {
         selection_type: h.selectionType,
         summary: h.summary,
       })),
+      path,
     };
   }, [
     currentSelectionType,
@@ -751,8 +739,9 @@ function App() {
     edges,
     entities,
     selectedEdge?.id,
-    selectedEntity?.id,
+    selectedEntity,
     overviewHistory,
+    selectionHistory,
   ]);
 
   const filteredEntities =
@@ -771,7 +760,7 @@ function App() {
   return (
     <div className="app-wrapper">
       <nav className="top-nav">
-        <h1 className="top-nav-title">BioRender</h1>
+        <a href="/" className="top-nav-logo">BioRender</a>
       </nav>
       <div className="app-layout">
       <div className="blob-bg" aria-hidden="true">
@@ -780,58 +769,63 @@ function App() {
         <div className="blob blob-3" />
         <div className="blob blob-4" />
       </div>
-      {/* Left Pane - Exploration Path */}
+      {/* Left Pane - Exploration Path + AI Overview */}
       <aside className={`pane pane-left ${sidebarOpen ? "" : "collapsed"}`}>
         <div className="pane-header">
-          <h2 className="path-history-title">Exploration Path</h2>
+          <h2 className="path-history-title">Knowledge Exploration Path</h2>
         </div>
-        <SearchBar entities={entities} onSelect={handleSearchSelect} />
-        <div className="path-history-list">
-          <PathBreadcrumb
-            selectionHistory={selectionHistory}
-            edges={edges}
-            onPrune={handlePruneHistory}
-            onClear={() => {
-              setSelectionHistory([]);
-              setExpansionSnapshots(new Map());
-            }}
-          />
+        <div className="left-pane-body" ref={leftPaneBodyRef}>
+          <div
+            className="path-history-list"
+            style={{ flex: `0 0 ${graphLoaded ? overviewRatio * 100 : 100}%` }}
+          >
+            <PathBreadcrumb
+              selectionHistory={selectionHistory}
+              edges={edges}
+              onPrune={handlePruneHistory}
+              onClear={() => {
+                setSelectionHistory([]);
+                setExpansionSnapshots(new Map());
+              }}
+            />
+          </div>
+          {graphLoaded && (
+            <>
+              <div className="pane-resize-handle" onMouseDown={handleDividerMouseDown} />
+              <div className="left-pane-overview">
+                <AIOverviewCard
+                  key={overviewRequest ? `${overviewRequest.selection_type}:${overviewRequest.edge_id ?? overviewRequest.node_id ?? "none"}` : "overview-none"}
+                  request={overviewRequest}
+                  onComplete={(item) => {
+                    setOverviewHistory((prev) => {
+                      const deduped = prev.filter(
+                        (existing) => existing.selectionKey !== item.selectionKey
+                      );
+                      return [...deduped, item].slice(-3);
+                    });
+                  }}
+                />
+              </div>
+            </>
+          )}
         </div>
       </aside>
 
       {/* Centre Pane */}
       <main className="pane pane-centre">
-        {/* Top bar: hamburger + hints + filter */}
-        <div className="centre-topbar">
-          <button
-            className="sidebar-toggle"
-            onClick={() => setSidebarOpen((v) => !v)}
-            aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              {sidebarOpen ? (
-                <>
-                  <path d="M15 18l-6-6 6-6" />
-                </>
-              ) : (
-                <>
-                  <line x1="3" y1="6" x2="21" y2="6" />
-                  <line x1="3" y1="12" x2="21" y2="12" />
-                  <line x1="3" y1="18" x2="21" y2="18" />
-                </>
-              )}
-            </svg>
-          </button>
+        {/* Floating left-edge tab for left panel toggle */}
+        <button
+          className={`panel-edge-tab panel-edge-tab-left${sidebarOpen ? " panel-open" : ""}`}
+          onClick={() => setSidebarOpen((v) => !v)}
+          aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            {sidebarOpen ? <path d="M15 18l-6-6 6-6" /> : <path d="M9 18l6-6-6-6" />}
+          </svg>
+        </button>
 
+        {/* Top bar: toolbar + filter */}
+        <div className="centre-topbar">
           <Toolbar onFit={handleFit} disabled={!graphLoaded} canReset={graphLoaded && expandedNodes.length > 1} onReset={handleResetExploration} canShare={graphLoaded} onShare={handleSaveSnapshot} isSaving={isSavingSnapshot} />
 
           {graphLoaded && (
@@ -883,13 +877,6 @@ function App() {
           </div>
         )}
 
-        {/* Empty state */}
-        {!graphLoaded && !isQuerying && !queryError && !backendMessage && (
-          <div className="empty-state">
-            <p>Enter a gene, disease, drug, pathway, or protein to explore its knowledge graph.</p>
-          </div>
-        )}
-
         <GraphCanvas
           key={`${graphKey}-${entityFilter === "all" ? "all" : [...entityFilter].sort().join(",")}`}
           entities={filteredEntities}
@@ -906,6 +893,7 @@ function App() {
           onNodeExpand={handleNodeExpand}
           onEdgeSelect={handleEdgeSelect}
           disabledNodeIds={disabledNodeIds}
+          fitRequest={fitRequest}
           pathNodeIds={pathNodeIds}
           onPositionsUpdate={handlePositionsUpdate}
         />
@@ -913,14 +901,38 @@ function App() {
         {/* Graph legend (bottom-left) */}
         {graphLoaded && <GraphLegend />}
 
+        {/* Floating right-edge tab for right panel toggle */}
+        {(selectedEdge || selectedEntity) && (
+          <button
+            className={`panel-edge-tab panel-edge-tab-right${!rightSidebarCollapsed ? " panel-open" : ""}`}
+            onClick={() => setRightSidebarCollapsed((v) => !v)}
+            aria-label={rightSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              {rightSidebarCollapsed ? <path d="M15 18l-6-6 6-6" /> : <path d="M9 18l6-6-6-6" />}
+            </svg>
+          </button>
+        )}
+
         {/* Chat input */}
-        {chatExpanded ? (
-          <ChatInput
-            onSubmit={handleQuery}
-            isLoading={isQuerying}
-            onCollapse={() => setChatExpanded(false)}
-          />
-        ) : (
+        {chatExpanded && (!isQuerying || graphLoaded) && (
+          <>
+            {graphLoaded && (
+              <div
+                className="chat-spotlight-backdrop"
+                onClick={() => setChatExpanded(false)}
+              />
+            )}
+            <ChatInput
+              onSubmit={handleQuery}
+              isLoading={isQuerying}
+              onCollapse={() => setChatExpanded(false)}
+              showCollapse={graphLoaded}
+              isLanding={!graphLoaded}
+            />
+          </>
+        )}
+        {!chatExpanded && (
           <button
             className="chat-expand-fab"
             onClick={() => setChatExpanded(true)}
@@ -936,71 +948,44 @@ function App() {
 
       {/* Right Pane */}
       {(selectedEdge || selectedEntity || selectionHistory.length >= 2) && (
-        <aside
-          ref={rightPaneRef}
-          className={`pane pane-right ${rightSidebarCollapsed ? "collapsed" : ""}`}
-        >
+        <aside className={`pane pane-right ${rightSidebarCollapsed ? "collapsed" : ""}`}>
           {rightSidebarCollapsed ? (
             <button
               className="right-pane-expand"
               onClick={() => setRightSidebarCollapsed(false)}
               aria-label="Expand sidebar"
             >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M15 18l-6-6 6-6" />
               </svg>
             </button>
           ) : (
             <div className="right-pane-inner">
-              {/* Resizable top: AI Overview */}
-              <div className="pane-top-section" style={{ flex: `0 0 ${overviewRatio * 100}%` }}>
-                <AIOverviewCard
-                  key={overviewRequest ? `${overviewRequest.selection_type}:${overviewRequest.edge_id ?? overviewRequest.node_id ?? "none"}` : "overview-none"}
-                  request={overviewRequest}
-                  onComplete={(item) => {
-                    setOverviewHistory((prev) => {
-                      const deduped = prev.filter(
-                        (existing) => existing.selectionKey !== item.selectionKey
-                      );
-                      return [...deduped, item].slice(-3);
-                    });
-                  }}
-                />
-              </div>
-
-              {/* Drag handle to resize the overview vs content split */}
-              <div className="pane-resize-handle" onMouseDown={handleDividerMouseDown} />
-
               {/* Scrollable middle: entity / edge panels */}
-              <div className="right-pane-middle">
+              <div className={`right-pane-middle${activeRightSection === 'deepthink' ? ' section-collapsed' : ''}`}>
                 {selectedEdge ? (
                   <EvidencePanel
                     edge={selectedEdge}
                     evidence={evidence}
                     entities={entities}
                     onClose={() => setSelectedEdge(null)}
-                    onCollapse={() => setRightSidebarCollapsed(true)}
                   />
                 ) : selectedEntity ? (
                   <EntityAdvancedSearchPanel
                     entity={selectedEntity}
                     selectionHistory={selectionHistory}
                     edges={edges}
-                    onCollapse={() => setRightSidebarCollapsed(true)}
                   />
                 ) : null}
               </div>
 
-              {/* Pinned bottom: Unpack This chatbot */}
-              {selectionHistory.length >= 2 && (
-                <DeepThinkPanel path={deepThinkPath} edges={edges} onOpenChange={handleDeepThinkOpenChange} />
+              {/* Pinned bottom: Deep Think */}
+              {selectionHistory.length >= 1 && (
+                <DeepThinkPanel
+                  path={deepThinkPath}
+                  edges={edges}
+                  onOpenChange={(open) => setActiveRightSection(open ? 'deepthink' : 'overview')}
+                />
               )}
             </div>
           )}

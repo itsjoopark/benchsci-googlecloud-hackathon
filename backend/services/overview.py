@@ -20,6 +20,7 @@ from backend.models.overview import (
     OverviewEdge,
     OverviewEntity,
     OverviewHistoryItem,
+    OverviewPathEntity,
     OverviewStreamRequest,
 )
 
@@ -244,7 +245,33 @@ def _build_selection_context(request: OverviewStreamRequest) -> SelectionContext
         chosen = _pick_best_edge(node_edges)
 
     if chosen is None:
-        raise ValueError("Unable to resolve a connection edge for selected node")
+        # Fallback: generate overview from node metadata alone (no edge required)
+        node_entity = entities.get(node_id)
+        fallback_edge = OverviewEdge(
+            id=f"fallback:{node_id}",
+            source=node_id,
+            target=center_id,
+            predicate="related_to",
+            label="related to",
+            score=None,
+            provenance="",
+            sourceDb="",
+            evidence=[],
+            paper_count=None,
+            trial_count=None,
+            patent_count=None,
+            cooccurrence_score=None,
+        )
+        return SelectionContext(
+            selection_key=f"node:{node_id}",
+            selection_type="node",
+            edge=fallback_edge,
+            source=node_entity,
+            target=entities.get(center_id),
+            related_edges=[],
+            center_overview=False,
+            entity_lookup=entities,
+        )
 
     source = entities.get(chosen.source)
     target = entities.get(chosen.target)
@@ -446,7 +473,7 @@ def _retrieve_rag_chunks(context: SelectionContext) -> list[RagChunk]:
     return chunks[: settings.OVERVIEW_RAG_TOP_K]
 
 
-def _prompt_text(context: SelectionContext, rag_chunks: list[RagChunk], history: list[OverviewHistoryItem], orkg_text: str = "") -> str:
+def _prompt_text(context: SelectionContext, rag_chunks: list[RagChunk], history: list[OverviewHistoryItem], orkg_text: str = "", path: list[OverviewPathEntity] | None = None) -> str:
     edge = context.edge
     source_name = context.source.name if context.source else edge.source
     target_name = context.target.name if context.target else edge.target
@@ -465,6 +492,12 @@ def _prompt_text(context: SelectionContext, rag_chunks: list[RagChunk], history:
         f"- {h.selection_key}: {h.summary[:240]}" for h in history[-settings.OVERVIEW_HISTORY_LIMIT :]
     ]
 
+    if path:
+        path_str = " → ".join(f"{p.name} ({p.type})" for p in path)
+        path_line = f"Exploration path: {path_str}"
+    else:
+        path_line = ""
+
     relation_lines: list[str] = []
     if context.center_overview and context.source:
         center_id = context.source.id
@@ -474,11 +507,18 @@ def _prompt_text(context: SelectionContext, rag_chunks: list[RagChunk], history:
             relation_lines.append(
                 f"- {source_name} -> {other_name}: {rel_edge.label or rel_edge.predicate} (score={rel_edge.score or 0:.2f})"
             )
-    selection_instruction = (
-        "Explain how the center node is related to all currently visible connected nodes, summarizing the strongest links."
-        if context.center_overview
-        else "Explain why this specific selected connection exists."
-    )
+
+    if path and len(path) >= 2:
+        path_names = " → ".join(p.name for p in path)
+        selection_instruction = (
+            f"Explain the full multi-hop exploration path: {path_names}. "
+            "Describe how each entity connects to the next, what the overall biological or clinical significance of this chain is, "
+            "and what insight can be drawn by traversing this entire sequence."
+        )
+    elif context.center_overview:
+        selection_instruction = "Explain how the center node is related to all currently visible connected nodes, summarizing the strongest links."
+    else:
+        selection_instruction = "Explain why this specific selected connection exists."
 
     return f"""
 You are a biomedical knowledge graph explainer.
@@ -509,6 +549,9 @@ RAG supporting context:
 
 ORKG scholarly contributions:
 {orkg_text if orkg_text else '- none'}
+
+Exploration path (how the user arrived here):
+{path_line if path_line else "- direct query (no prior exploration)"}
 
 Previous session summaries:
 {chr(10).join(history_lines) if history_lines else '- none'}
@@ -604,7 +647,7 @@ def stream_overview_events(request: OverviewStreamRequest):
         return current, previous_full + current
 
     try:
-        prompt = _prompt_text(context, rag_chunks, request.history, orkg_text)
+        prompt = _prompt_text(context, rag_chunks, request.history, orkg_text, request.path or None)
         stream, chosen_model = _stream_overview_generation(prompt)
         global _resolved_generation_model_name
         _resolved_generation_model_name = chosen_model
