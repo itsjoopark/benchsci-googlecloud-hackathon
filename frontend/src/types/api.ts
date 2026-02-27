@@ -33,4 +33,5 @@ export interface JsonGraphPayload {
   center_node_id: string;
   nodes: JsonNode[];
   edges: JsonEdge[];
+  message?: string;
 }

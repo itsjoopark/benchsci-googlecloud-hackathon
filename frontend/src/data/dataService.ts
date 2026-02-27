@@ -1,6 +1,29 @@
 import type { Entity } from "../types";
 import type { JsonGraphPayload } from "../types/api";
-import { jsonPayloadToGraph, jsonNodeToEntity } from "./adapters";
+import { jsonNodeToEntity } from "./adapters";
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+
+export async function queryEntity(
+  query: string,
+  signal?: AbortSignal
+): Promise<JsonGraphPayload> {
+  const res = await fetch(`${API_BASE}/api/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
+    signal,
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "Unknown error");
+    throw new Error(
+      res.status === 502
+        ? "Entity extraction service is unavailable. Please try again."
+        : `Query failed (${res.status}): ${detail}`
+    );
+  }
+  return res.json();
+}
 
 export async function fetchGraph(): Promise<JsonGraphPayload> {
   const res = await fetch("/data_model.json");

@@ -170,3 +170,108 @@
 .sidebar-toggle:hover {
   background: var(--color-bg-elevated);
 }
+
+/* ── Query loading overlay ── */
+
+.query-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+.query-loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-gene);
+  border-radius: 50%;
+  animation: query-spin 0.7s linear infinite;
+}
+
+@keyframes query-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Error banner ── */
+
+.query-error-banner {
+  position: absolute;
+  top: var(--space-md);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-lg);
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: var(--radius-md);
+  color: #991b1b;
+  font-size: var(--font-size-sm);
+  max-width: min(600px, calc(100% - 96px));
+}
+
+.query-error-banner button {
+  background: none;
+  border: none;
+  color: #991b1b;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+/* ── Message banner ── */
+
+.query-message-banner {
+  position: absolute;
+  top: var(--space-md);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-lg);
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: var(--radius-md);
+  color: #92400e;
+  font-size: var(--font-size-sm);
+  max-width: min(600px, calc(100% - 96px));
+}
+
+.query-message-banner button {
+  background: none;
+  border: none;
+  color: #92400e;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+/* ── Empty state ── */
+
+.empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.empty-state p {
+  font-size: var(--font-size-base);
+  color: var(--color-text-secondary);
+  text-align: center;
+  max-width: 360px;
+  line-height: 1.6;
+}

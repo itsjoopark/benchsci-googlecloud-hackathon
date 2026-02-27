@@ -1,0 +1,6 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+google-cloud-bigquery==3.33.0
+gradio_client>=1.0.0
+pydantic==2.11.7
+pydantic-settings>=2.0.0

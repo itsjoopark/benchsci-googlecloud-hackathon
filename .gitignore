@@ -59,4 +59,5 @@ multihopwanderer-*.json
 service-account-key.json
 
 # Large dataset files
-data/pkg2/
+data
+CLAUDE.md

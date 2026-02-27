@@ -1,8 +1,7 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 import type { Entity, GraphEdge, PathNode } from "./types";
 import { jsonPayloadToGraph } from "./data/adapters";
-import { fetchGraph } from "./data/dataService";
-import type { JsonGraphPayload } from "./types/api";
+import { queryEntity } from "./data/dataService";
 import SearchBar from "./components/SearchBar";
 import EntityCard from "./components/EntityCard";
 import GraphCanvas from "./components/GraphCanvas";
@@ -17,7 +16,6 @@ function getEntityById(entities: Entity[], nodeId: string): Entity | undefined {
 }
 
 function App() {
-  const [graphPayload, setGraphPayload] = useState<JsonGraphPayload | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
@@ -30,6 +28,11 @@ function App() {
   const [selectionHistory, setSelectionHistory] = useState<Entity[]>([]);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
 
+  const [isQuerying, setIsQuerying] = useState(false);
+  const [queryError, setQueryError] = useState<string | null>(null);
+  const [backendMessage, setBackendMessage] = useState<string | null>(null);
+  const queryAbortRef = useRef<AbortController | null>(null);
+
   const addToSelectionHistory = useCallback((entity: Entity) => {
     setSelectionHistory((prev) => {
       const filtered = prev.filter((e) => e.id !== entity.id);
@@ -37,18 +40,63 @@ function App() {
     });
   }, []);
 
-  useEffect(() => {
-    fetchGraph()
-      .then(setGraphPayload)
-      .catch((err) => console.error("Failed to load graph:", err));
-  }, []);
+  const handleQuery = useCallback(
+    async (query: string) => {
+      // Cancel any in-flight request
+      queryAbortRef.current?.abort();
+      const controller = new AbortController();
+      queryAbortRef.current = controller;
+
+      setIsQuerying(true);
+      setQueryError(null);
+      setBackendMessage(null);
+
+      try {
+        const payload = await queryEntity(query, controller.signal);
+
+        // Backend "not found" message
+        if (payload.message) {
+          setBackendMessage(payload.message);
+          return;
+        }
+
+        // Empty results
+        if (!payload.nodes || payload.nodes.length === 0) {
+          setBackendMessage(`No results found for "${query}".`);
+          return;
+        }
+
+        const { entities: e, edges: ed } = jsonPayloadToGraph(payload);
+        setEntities(e);
+        setEdges(ed);
+        setSelectedEdge(null);
+        setPath([]);
+        setExpandedNodes(new Set());
+
+        // Auto-select the center node
+        const center = e.find((ent) => ent.id === payload.center_node_id);
+        if (center) {
+          setSelectedEntity(center);
+          addToSelectionHistory(center);
+        } else {
+          setSelectedEntity(null);
+        }
+
+        setGraphKey((k) => k + 1);
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setQueryError(
+          err instanceof Error ? err.message : "An unexpected error occurred."
+        );
+      } finally {
+        setIsQuerying(false);
+      }
+    },
+    [addToSelectionHistory]
+  );
 
   const handleSearchSelect = useCallback(
     (entity: Entity) => {
-      if (!graphPayload) return;
-      const { entities: e, edges: ed } = jsonPayloadToGraph(graphPayload);
-      setEntities(e);
-      setEdges(ed);
       setSelectedEntity(entity);
       setSelectedEdge(null);
       setPath([]);
@@ -56,7 +104,7 @@ function App() {
       addToSelectionHistory(entity);
       setGraphKey((k) => k + 1);
     },
-    [graphPayload, addToSelectionHistory]
+    [addToSelectionHistory]
   );
 
   const handleNodeSelect = useCallback(
@@ -120,10 +168,6 @@ function App() {
 
   const evidence = selectedEdge?.evidence ?? [];
 
-  const searchEntities = graphPayload
-    ? jsonPayloadToGraph(graphPayload).entities
-    : [];
-
   const filteredEntities =
     entityFilter === "all" ||
     (Array.isArray(entityFilter) && entityFilter.length === 0)
@@ -148,7 +192,7 @@ function App() {
         <div className="pane-header">
           <h2 className="path-history-title">Path History</h2>
         </div>
-        <SearchBar entities={searchEntities} onSelect={handleSearchSelect} />
+        <SearchBar entities={entities} onSelect={handleSearchSelect} />
         <div className="path-history-list">
           {selectionHistory.map((entity) => (
             <EntityCard key={entity.id} entity={entity} />
@@ -197,6 +241,37 @@ function App() {
         </button>
 
         <Toolbar onFit={handleFit} disabled={!graphLoaded} />
+
+        {/* Error banner */}
+        {queryError && (
+          <div className="query-error-banner">
+            <span>{queryError}</span>
+            <button onClick={() => setQueryError(null)} aria-label="Dismiss error">&times;</button>
+          </div>
+        )}
+
+        {/* Backend message banner */}
+        {backendMessage && (
+          <div className="query-message-banner">
+            <span>{backendMessage}</span>
+            <button onClick={() => setBackendMessage(null)} aria-label="Dismiss message">&times;</button>
+          </div>
+        )}
+
+        {/* Loading overlay */}
+        {isQuerying && (
+          <div className="query-loading-overlay">
+            <div className="query-loading-spinner" />
+          </div>
+        )}
+
+        {/* Empty state */}
+        {!graphLoaded && !isQuerying && !queryError && !backendMessage && (
+          <div className="empty-state">
+            <p>Enter a gene, disease, drug, pathway, or protein to explore its knowledge graph.</p>
+          </div>
+        )}
+
         <GraphCanvas
           key={`${graphKey}-${entityFilter === "all" ? "all" : [...entityFilter].sort().join(",")}`}
           entities={filteredEntities}
@@ -216,8 +291,8 @@ function App() {
 
         {/* Chat input */}
         <ChatInput
-          graphPayload={graphPayload}
-          onSubmit={handleSearchSelect}
+          onSubmit={handleQuery}
+          isLoading={isQuerying}
           entityFilter={entityFilter}
           onEntityFilterChange={setEntityFilter}
         />

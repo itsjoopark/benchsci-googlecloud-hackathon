@@ -1,7 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import type { Entity, EntityType } from "../types";
-import type { JsonGraphPayload } from "../types/api";
-import { searchGraph } from "../data/dataService";
+import type { EntityType } from "../types";
 import "./ChatInput.css";
 
 export type EntityFilterValue = EntityType[] | "all";
@@ -15,15 +13,15 @@ const ENTITY_TYPE_OPTIONS: { value: EntityType; label: string }[] = [
 ];
 
 interface Props {
-  graphPayload: JsonGraphPayload | null;
-  onSubmit: (entity: Entity) => void;
+  onSubmit: (query: string) => void;
+  isLoading: boolean;
   entityFilter: EntityFilterValue;
   onEntityFilterChange: (filter: EntityFilterValue) => void;
 }
 
 export default function ChatInput({
-  graphPayload,
   onSubmit,
+  isLoading,
   entityFilter,
   onEntityFilterChange,
 }: Props) {
@@ -43,13 +41,11 @@ export default function ChatInput({
   }, []);
 
   const handleSubmit = useCallback(() => {
-    if (!graphPayload) return;
-    const match = searchGraph(value, graphPayload);
-    if (match) {
-      onSubmit(match);
-      setValue("");
-    }
-  }, [value, onSubmit, graphPayload]);
+    const trimmed = value.trim();
+    if (!trimmed || isLoading) return;
+    onSubmit(trimmed);
+    setValue("");
+  }, [value, onSubmit, isLoading]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -86,11 +82,12 @@ export default function ChatInput({
         <textarea
           ref={inputRef}
           className="chat-textarea"
-          placeholder="Describe what you'd like to explore..."
+          placeholder="Search for a gene, disease, drug, pathway, or protein..."
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
           rows={1}
+          disabled={isLoading}
         />
         <div className="chat-actions">
           <div className="chat-actions-left">
@@ -171,13 +168,17 @@ export default function ChatInput({
             <button
               className="chat-submit-btn"
               onClick={handleSubmit}
-              disabled={!value.trim() || !graphPayload}
+              disabled={!value.trim() || isLoading}
               aria-label="Send"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
+              {isLoading ? (
+                <span className="chat-submit-spinner" />
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13" />
+                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                </svg>
+              )}
             </button>
           </div>
         </div>
