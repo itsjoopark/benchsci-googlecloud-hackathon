@@ -39,47 +39,32 @@
 .chat-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--space-sm);
 }
 
-.chat-actions-left {
+.chat-collapse-btn {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: auto;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  transition: background 0.15s, color 0.15s;
+}
+
+.chat-collapse-btn:hover {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
 }
 
 .chat-actions-right {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-}
-
-.chat-action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-xs);
-  padding: var(--space-xs) var(--space-sm);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  transition: background 0.15s, color 0.15s;
-}
-
-.chat-action-btn:hover:not(:disabled) {
-  background: var(--color-bg-elevated);
-  color: var(--color-text-primary);
-}
-
-.chat-action-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.chat-tools-btn span {
-  font-weight: 500;
 }
 
 .chat-submit-btn {

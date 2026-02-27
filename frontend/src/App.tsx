@@ -23,10 +23,11 @@ function App() {
   const [selectedEdge, setSelectedEdge] = useState<GraphEdge | null>(null);
   const [path, setPath] = useState<PathNode[]>([]);
   const [graphKey, setGraphKey] = useState(0);
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+  const [expandedNodes, setExpandedNodes] = useState<string[]>([]);
   const [entityFilter, setEntityFilter] = useState<EntityFilterValue>("all");
   const [selectionHistory, setSelectionHistory] = useState<Entity[]>([]);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
+  const [chatExpanded, setChatExpanded] = useState(true);
 
   const [isQuerying, setIsQuerying] = useState(false);
   const [queryError, setQueryError] = useState<string | null>(null);
@@ -120,7 +121,7 @@ function App() {
         setEdges(finalEdges);
         setSelectedEdge(null);
         setPath([]);
-        setExpandedNodes(new Set());
+        setExpandedNodes(centerId ? [centerId] : []);
 
         // Auto-select the center node
         const center = e.find((ent) => ent.id === payload.center_node_id);
@@ -149,7 +150,7 @@ function App() {
       setSelectedEntity(entity);
       setSelectedEdge(null);
       setPath([]);
-      setExpandedNodes(new Set());
+      setExpandedNodes([]);
       addToSelectionHistory(entity);
       setSidebarOpen(true);
       setRightSidebarCollapsed(false);
@@ -180,13 +181,13 @@ function App() {
 
   const handleNodeExpand = useCallback(
     async (nodeId: string) => {
-      if (expandedNodes.has(nodeId) || isExpanding) return;
+      if (expandedNodes.includes(nodeId) || isExpanding) return;
 
       expandAbortRef.current?.abort();
       const controller = new AbortController();
       expandAbortRef.current = controller;
 
-      setExpandedNodes((prev) => new Set(prev).add(nodeId));
+      setExpandedNodes((prev) => [...prev, nodeId]);
       setIsExpanding(true);
       setExpandError(null);
 
@@ -239,11 +240,7 @@ function App() {
         setExpandError(
           err instanceof Error ? err.message : "Failed to expand node."
         );
-        setExpandedNodes((prev) => {
-          const n = new Set(prev);
-          n.delete(nodeId);
-          return n;
-        });
+        setExpandedNodes((prev) => prev.filter((id) => id !== nodeId));
       } finally {
         setIsExpanding(false);
       }
@@ -368,7 +365,7 @@ function App() {
           </svg>
         </button>
 
-        <Toolbar onFit={handleFit} disabled={!graphLoaded} />
+        <Toolbar onFit={handleFit} disabled={!graphLoaded} pathLength={path.length} onClearPath={() => setPath([])} />
 
         {/* Error banner */}
         {queryError && (
@@ -435,12 +432,27 @@ function App() {
         />
 
         {/* Chat input */}
-        <ChatInput
-          onSubmit={handleQuery}
-          isLoading={isQuerying}
-          entityFilter={entityFilter}
-          onEntityFilterChange={setEntityFilter}
-        />
+        {chatExpanded ? (
+          <ChatInput
+            onSubmit={handleQuery}
+            isLoading={isQuerying}
+            entityFilter={entityFilter}
+            onEntityFilterChange={setEntityFilter}
+            onCollapse={() => setChatExpanded(false)}
+          />
+        ) : (
+          <button
+            className="chat-expand-fab"
+            onClick={() => setChatExpanded(true)}
+            aria-label="Open search"
+            title="Open search"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </button>
+        )}
       </main>
 
       {/* Right Pane */}

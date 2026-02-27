@@ -17,7 +17,7 @@ interface Props {
   edges: GraphEdge[];
   selectedEntityId: string | null;
   selectedEdgeId: string | null;
-  expandedNodes: Set<string>;
+  expandedNodes: string[];
   path: PathNode[];
   onNodeSelect: (nodeId: string) => void;
   onNodeExpand: (nodeId: string) => void;
@@ -32,7 +32,6 @@ interface SimNode extends SimulationNodeDatum {
   color: string;
   size: number;
   mesh?: THREE.Mesh;
-  glowMesh?: THREE.Mesh;
   labelSprite?: THREE.Sprite;
 }
 
@@ -107,6 +106,31 @@ function createLabelTexture(text: string): THREE.Texture {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(text, width / 2, height / 2);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  return texture;
+}
+
+function createNumberBadgeTexture(n: number): THREE.Texture {
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  // Circle background
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+  ctx.strokeStyle = "#333333";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  // Number text
+  ctx.font = "bold 32px Inter, sans-serif";
+  ctx.fillStyle = "#333333";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(String(n), size / 2, size / 2);
   const texture = new THREE.CanvasTexture(canvas);
   texture.minFilter = THREE.LinearFilter;
   return texture;
@@ -220,6 +244,45 @@ export default function GraphCanvas({
       }
     });
 
+    // Build adjacency list for BFS path-finding along expansion trail
+    const adj = new Map<string, { neighbor: string; edgeId: string }[]>();
+    simLinks.forEach((l) => {
+      const sId = typeof l.source === "string" ? l.source : (l.source as SimNode).id;
+      const tId = typeof l.target === "string" ? l.target : (l.target as SimNode).id;
+      if (!adj.has(sId)) adj.set(sId, []);
+      if (!adj.has(tId)) adj.set(tId, []);
+      adj.get(sId)!.push({ neighbor: tId, edgeId: l.id });
+      adj.get(tId)!.push({ neighbor: sId, edgeId: l.id });
+    });
+
+    function bfsPathEdges(startId: string, endId: string): string[] {
+      if (startId === endId) return [];
+      const visited = new Set<string>([startId]);
+      const queue: { nodeId: string; edgeTrail: string[] }[] = [
+        { nodeId: startId, edgeTrail: [] },
+      ];
+      while (queue.length > 0) {
+        const { nodeId, edgeTrail } = queue.shift()!;
+        for (const { neighbor, edgeId } of adj.get(nodeId) ?? []) {
+          if (visited.has(neighbor)) continue;
+          const newTrail = [...edgeTrail, edgeId];
+          if (neighbor === endId) return newTrail;
+          visited.add(neighbor);
+          queue.push({ nodeId: neighbor, edgeTrail: newTrail });
+        }
+      }
+      return [];
+    }
+
+    // Collect all edges on the expansion trail
+    const expansionEdgeIds = new Set<string>();
+    for (let i = 1; i < expandedNodes.length; i++) {
+      for (const edgeId of bfsPathEdges(expandedNodes[i - 1], expandedNodes[i])) {
+        expansionEdgeIds.add(edgeId);
+      }
+    }
+    const expandedNodeSet = new Set(expandedNodes);
+
     // Create edge lines first (render behind nodes)
     const edgeMeshes: SimLink[] = [];
     simLinks.forEach((link) => {
@@ -271,28 +334,21 @@ export default function GraphCanvas({
       const r = NODE_RADIUS * node.size;
       mesh.scale.set(node.size, node.size, 1);
 
-      // Glow (for selected + hover) - radius in local space so it scales with mesh
-      const glowGeo = new THREE.CircleGeometry(NODE_RADIUS * 2, 32);
-      const glowMat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(node.color),
-        transparent: true,
-        opacity: 0.5,
-      });
-      const glow = new THREE.Mesh(glowGeo, glowMat);
-      glow.position.z = 0.5;
-      mesh.add(glow);
-      node.glowMesh = glow;
-      glow.visible = node.id === selectedEntityIdRef.current;
+      // Expansion border ring + number badge
+      if (expandedNodeSet.has(node.id)) {
+        const ringGeo = new THREE.RingGeometry(NODE_RADIUS + 1, NODE_RADIUS + 4, 32);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.position.z = 0.5;
+        mesh.add(ring);
 
-      // Expanded indicator
-      if (expandedNodes.has(node.id)) {
-        const dotGeo = new THREE.CircleGeometry(3, 16);
-        const dotMat = new THREE.MeshBasicMaterial({
-          color: new THREE.Color(node.color),
-        });
-        const dot = new THREE.Mesh(dotGeo, dotMat);
-        dot.position.set(r + 4, r + 4, 2);
-        mesh.add(dot);
+        const order = expandedNodes.indexOf(node.id) + 1;
+        const badgeTexture = createNumberBadgeTexture(order);
+        const badgeMat = new THREE.SpriteMaterial({ map: badgeTexture, transparent: true });
+        const badge = new THREE.Sprite(badgeMat);
+        badge.scale.set(12, 12, 1);
+        badge.position.set(r + 6, r + 6, 2);
+        mesh.add(badge);
       }
 
       // Path highlight
@@ -365,9 +421,18 @@ export default function GraphCanvas({
           positions.needsUpdate = true;
 
           const isSelected = link.id === selectedEdgeIdRef.current;
+          const isExpansionPath = expansionEdgeIds.has(link.id);
           const mat = link.line.material as THREE.LineBasicMaterial;
-          mat.color.setHex(isSelected ? 0x4A90D9 : EDGE_COLOR);
-          mat.opacity = isSelected ? 1 : 0.6;
+          if (isSelected) {
+            mat.color.setHex(0x4A90D9);
+            mat.opacity = 1;
+          } else if (isExpansionPath) {
+            mat.color.setHex(0xffffff);
+            mat.opacity = 1.0;
+          } else {
+            mat.color.setHex(EDGE_COLOR);
+            mat.opacity = 0.6;
+          }
 
           if (link.glowMesh) {
             const dx = t.x - s.x;
@@ -380,15 +445,6 @@ export default function GraphCanvas({
         }
       });
     });
-
-    // Helper: check if a node is an endpoint of the given edge
-    function isConnectedToEdge(nodeId: string, edgeId: string): boolean {
-      const link = simLinks.find((l) => l.id === edgeId);
-      if (!link) return false;
-      const s = (link.source as SimNode).id ?? link.source;
-      const t = (link.target as SimNode).id ?? link.target;
-      return s === nodeId || t === nodeId;
-    }
 
     // Interaction state
     const raycaster = new THREE.Raycaster();
@@ -460,13 +516,19 @@ export default function GraphCanvas({
       if (!node) {
         const edge = getIntersectedEdge(e);
         if (edge && edge !== hoveredEdgeLine) {
-          // Reset previous hovered edge (only if it's not the selected edge)
+          // Reset previous hovered edge (only if it's not the selected or expansion path edge)
           if (hoveredEdgeLine) {
-            const isSelected = hoveredEdgeLine.userData.edgeId === selectedEdgeIdRef.current;
+            const prevEdgeId = hoveredEdgeLine.userData.edgeId as string;
+            const isSelected = prevEdgeId === selectedEdgeIdRef.current;
             if (!isSelected) {
               const mat = hoveredEdgeLine.material as THREE.LineBasicMaterial;
-              mat.color.setHex(EDGE_COLOR);
-              mat.opacity = 0.6;
+              if (expansionEdgeIds.has(prevEdgeId)) {
+                mat.color.setHex(0xffffff);
+                mat.opacity = 1.0;
+              } else {
+                mat.color.setHex(EDGE_COLOR);
+                mat.opacity = 0.6;
+              }
             }
           }
           // Highlight new hovered edge (only if it's not already selected)
@@ -478,11 +540,17 @@ export default function GraphCanvas({
           }
           hoveredEdgeLine = edge;
         } else if (!edge && hoveredEdgeLine) {
-          const isSelected = hoveredEdgeLine.userData.edgeId === selectedEdgeIdRef.current;
+          const hovEdgeId = hoveredEdgeLine.userData.edgeId as string;
+          const isSelected = hovEdgeId === selectedEdgeIdRef.current;
           if (!isSelected) {
             const mat = hoveredEdgeLine.material as THREE.LineBasicMaterial;
-            mat.color.setHex(EDGE_COLOR);
-            mat.opacity = 0.6;
+            if (expansionEdgeIds.has(hovEdgeId)) {
+              mat.color.setHex(0xffffff);
+              mat.opacity = 1.0;
+            } else {
+              mat.color.setHex(EDGE_COLOR);
+              mat.opacity = 0.6;
+            }
           }
           hoveredEdgeLine = null;
         }
@@ -499,11 +567,17 @@ export default function GraphCanvas({
         container.style.cursor = "default";
       }
       if (hoveredEdgeLine) {
-        const isSelected = hoveredEdgeLine.userData.edgeId === selectedEdgeIdRef.current;
+        const leaveEdgeId = hoveredEdgeLine.userData.edgeId as string;
+        const isSelected = leaveEdgeId === selectedEdgeIdRef.current;
         if (!isSelected) {
           const mat = hoveredEdgeLine.material as THREE.LineBasicMaterial;
-          mat.color.setHex(EDGE_COLOR);
-          mat.opacity = 0.6;
+          if (expansionEdgeIds.has(leaveEdgeId)) {
+            mat.color.setHex(0xffffff);
+            mat.opacity = 1.0;
+          } else {
+            mat.color.setHex(EDGE_COLOR);
+            mat.opacity = 0.6;
+          }
         }
         hoveredEdgeLine = null;
       }
@@ -596,20 +670,17 @@ export default function GraphCanvas({
     let animId: number;
     const animate = () => {
       animId = requestAnimationFrame(animate);
-      simNodes.forEach((node) => {
-        if (node.glowMesh) {
-          const isHovered = hoveredNodeRef.current === node.mesh;
-          const isEdgeEndpoint = selectedEdgeIdRef.current !== null &&
-            isConnectedToEdge(node.id, selectedEdgeIdRef.current);
-          node.glowMesh.visible = isHovered || isEdgeEndpoint;
-        }
-      });
       simLinks.forEach((link) => {
         if (link.glowMesh) {
           const isHovered = hoveredEdgeLine !== null &&
             hoveredEdgeLine.userData.edgeId === link.id;
           const isSelected = link.id === selectedEdgeIdRef.current;
-          link.glowMesh.visible = isHovered || isSelected;
+          const isExpansionPath = expansionEdgeIds.has(link.id);
+          link.glowMesh.visible = isHovered || isSelected || isExpansionPath;
+          if (isExpansionPath && !isSelected && !isHovered) {
+            (link.glowMesh.material as THREE.MeshBasicMaterial).color.setHex(0xffffff);
+            (link.glowMesh.material as THREE.MeshBasicMaterial).opacity = 0.3;
+          }
         }
       });
       renderer.render(scene, camera);

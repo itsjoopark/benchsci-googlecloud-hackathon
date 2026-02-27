@@ -340,6 +340,32 @@
   line-height: 1;
 }
 
+/* ── Chat expand FAB ── */
+
+.chat-expand-fab {
+  position: absolute;
+  bottom: var(--space-xl);
+  left: var(--space-xl);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  background: var(--color-gene);
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(74, 144, 217, 0.35);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.chat-expand-fab:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 20px rgba(74, 144, 217, 0.45);
+}
+
 /* ── Empty state ── */
 
 .empty-state {

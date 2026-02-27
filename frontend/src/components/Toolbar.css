@@ -30,6 +30,21 @@
   cursor: default;
 }
 
+.toolbar-btn-clear-path.active {
+  border-color: var(--color-disease);
+  color: var(--color-disease);
+}
+
+.toolbar-btn-clear-path.active:hover:not(:disabled) {
+  background: rgba(231, 76, 60, 0.08);
+}
+
+.toolbar-path-count {
+  font-size: var(--font-size-xs);
+  color: var(--color-disease);
+  font-weight: 600;
+}
+
 .toolbar-hint {
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
