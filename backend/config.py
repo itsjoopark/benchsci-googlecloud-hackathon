@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     ]
     CORS_ORIGIN_REGEX: str = r"^https://benchspark-frontend(-[a-z0-9-]+)?\.us-central1\.run\.app$"
 
+    # Firestore (snapshot persistence)
+    FIRESTORE_COLLECTION: str = "graph_snapshots"
+
     # Cloud Spanner Graph (shortest-path traversal)
     SPANNER_INSTANCE_ID: str = "benchspark-graph"
     SPANNER_DATABASE_ID: str = "biograph"

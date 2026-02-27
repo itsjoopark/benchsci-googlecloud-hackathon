@@ -75,7 +75,7 @@ function App() {
   const [shareToast, setShareToast] = useState<string | null>(null);
 
   // Snapshot of the initial query result so Reset can restore it
-  const initialGraphStateRef = useRef<{ entities: Entity[]; edges: GraphEdge[]; centerNodeId: string } | null>(null);
+  const initialGraphStateRef = useRef<{ entities: Entity[]; edges: GraphEdge[]; centerNodeId: string; pathNodeIds?: string[] } | null>(null);
 
   /** Merge incoming entities from an expand response. New entities are added;
    * existing entities that appear in the response are updated with the
@@ -146,27 +146,42 @@ function App() {
 
         // === PATH MODE: shortest path response ===
         if (payload.path_node_ids && payload.path_node_ids.length > 0) {
+          const pathIds = payload.path_node_ids;
+
           // Show ALL nodes on the path (no neighbor limiting)
           initialGraphStateRef.current = {
             entities: e,
             edges: ed,
             centerNodeId: payload.center_node_id ?? "",
+            pathNodeIds: pathIds,
           };
 
           setEntities(e);
           setEdges(ed);
           setSelectedEdge(null);
-          setExpandedNodes(payload.path_node_ids);
+          // Mark all path nodes EXCEPT the last as expanded,
+          // so the user can double-click the last node to expand
+          setExpandedNodes(pathIds.slice(0, -1));
           setExpansionSnapshots(new Map());
           setCenterNodeId(payload.center_node_id ?? "");
-          setPathNodeIds(payload.path_node_ids);
+          setPathNodeIds(pathIds);
           setOverviewHistory([]);
 
-          // Set selection history to all path entities for DeepThink
-          setSelectionHistory(e);
-          if (e[0]) {
-            setSelectedEntity(e[0]);
+          // Build selection history in path order (newest-first for PathBreadcrumb)
+          const pathOrderedEntities = pathIds
+            .map((id) => e.find((ent) => ent.id === id))
+            .filter((ent): ent is Entity => !!ent);
+          setSelectionHistory([...pathOrderedEntities].reverse());
+
+          // Select the first path entity (the starting point) for AI overview
+          const startEntity = e.find((ent) => ent.id === pathIds[0]);
+          if (startEntity) {
+            setSelectedEntity(startEntity);
           }
+
+          // Open both sidebars so exploration path + AI overview are visible
+          setSidebarOpen(true);
+          setRightSidebarCollapsed(false);
 
           setGraphKey((k) => k + 1);
           setChatExpanded(false);
@@ -509,14 +524,32 @@ function App() {
     setEntities(snapshot.entities);
     setEdges(snapshot.edges);
     setCenterNodeId(snapshot.centerNodeId);
-    setExpandedNodes(snapshot.centerNodeId ? [snapshot.centerNodeId] : []);
     setExpansionSnapshots(new Map());
-    setSelectionHistory([]);
     setSelectedEdge(null);
     setOverviewHistory([]);
-    const center = snapshot.entities.find((e) => e.id === snapshot.centerNodeId);
-    if (center) { setSelectedEntity(center); addToSelectionHistory(center); }
-    else { setSelectedEntity(null); }
+
+    const savedPathIds = snapshot.pathNodeIds ?? [];
+    setPathNodeIds(savedPathIds);
+
+    if (savedPathIds.length > 0) {
+      // Restore path mode: expand all except last, rebuild path selection history
+      setExpandedNodes(savedPathIds.slice(0, -1));
+      const pathOrderedEntities = savedPathIds
+        .map((id) => snapshot.entities.find((e) => e.id === id))
+        .filter((ent): ent is Entity => !!ent);
+      setSelectionHistory([...pathOrderedEntities].reverse());
+      const startEntity = snapshot.entities.find((e) => e.id === savedPathIds[0]);
+      if (startEntity) { setSelectedEntity(startEntity); }
+      else { setSelectedEntity(null); }
+    } else {
+      // Restore search mode
+      setExpandedNodes(snapshot.centerNodeId ? [snapshot.centerNodeId] : []);
+      setSelectionHistory([]);
+      const center = snapshot.entities.find((e) => e.id === snapshot.centerNodeId);
+      if (center) { setSelectedEntity(center); addToSelectionHistory(center); }
+      else { setSelectedEntity(null); }
+    }
+
     setGraphKey((k) => k + 1);
   }, [addToSelectionHistory]);
 

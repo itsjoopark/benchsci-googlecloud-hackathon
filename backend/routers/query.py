@@ -35,7 +35,7 @@ async def query_entity(request: QueryRequest) -> JsonGraphPayload:
     # Step 1: Use Gemini function calling to determine intent
     try:
         func_name, args = await extract_query_intent(request.query)
-        logger.info("Gemini intent: func=%s args=%s", func_name, args)
+        logger.info("Query: '%s' → Gemini intent: func=%s args=%s", request.query, func_name, args)
     except Exception as e:
         # Fallback to existing single-entity extraction
         logger.warning("Intent extraction failed (%s), falling back to single-entity", e)
@@ -43,6 +43,7 @@ async def query_entity(request: QueryRequest) -> JsonGraphPayload:
             extracted = await extract_entity(request.query)
             func_name = "search_entity"
             args = {"entity_name": extracted.entity_name, "entity_type": extracted.entity_type}
+            logger.info(">>> PATHWAY: Single Entity Search (fallback) | entity='%s' type='%s'", args["entity_name"], args["entity_type"])
         except Exception as e2:
             logger.error("Fallback extraction also failed: %s", e2)
             raise HTTPException(status_code=502, detail="Entity extraction failed") from e2
@@ -56,6 +57,7 @@ async def query_entity(request: QueryRequest) -> JsonGraphPayload:
 
 async def _handle_search_entity(args: dict) -> JsonGraphPayload:
     """Existing single-entity search flow."""
+    logger.info(">>> PATHWAY: Single Entity Search | entity='%s' type='%s'", args.get("entity_name", ""), args.get("entity_type"))
     entity = await find_entity(
         args.get("entity_name", ""),
         entity_type=args.get("entity_type"),
@@ -75,6 +77,7 @@ async def _handle_search_entity(args: dict) -> JsonGraphPayload:
 
 async def _handle_shortest_path(args: dict) -> JsonGraphPayload:
     """Find and return the shortest path between two entities."""
+    logger.info(">>> PATHWAY: Shortest Path | from='%s' (%s) → to='%s' (%s)", args.get("entity1_name", ""), args.get("entity1_type"), args.get("entity2_name", ""), args.get("entity2_type"))
     name1 = args.get("entity1_name", "")
     type1 = args.get("entity1_type")
     name2 = args.get("entity2_name", "")
@@ -114,11 +117,12 @@ async def _handle_shortest_path(args: dict) -> JsonGraphPayload:
             message=f"No path found between '{name1}' and '{name2}' within the knowledge graph.",
         )
 
-    # Collect all entity IDs along the path
+    # Collect all entity IDs along the path (preserving order)
     path_ids = [id1]
     for seg in path_segments:
-        if seg["to"] not in path_ids:
-            path_ids.append(seg["to"])
+        for eid in (seg["from"], seg["to"]):
+            if eid not in path_ids:
+                path_ids.append(eid)
 
     # Fetch PMIDs for path edges from BigQuery (Spanner returns structure only)
     edge_pairs = [(seg["from"], seg["to"], seg["relation_type"]) for seg in path_segments]

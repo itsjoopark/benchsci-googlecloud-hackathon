@@ -51,7 +51,8 @@ def extract_relationships(bq_client: bigquery.Client) -> list[tuple]:
     return [(row["entity_id1"], row["entity_id2"], row["relation_type"]) for row in rows]
 
 
-def batch_insert(database, table: str, columns: list[str], rows: list[tuple]):
+def batch_insert(database, table: str, columns: list[str], rows: list[tuple],
+                 use_insert_or_update: bool = False):
     """Insert rows into Spanner in batches."""
     total = len(rows)
     inserted = 0
@@ -59,7 +60,10 @@ def batch_insert(database, table: str, columns: list[str], rows: list[tuple]):
     for i in range(0, total, BATCH_SIZE):
         chunk = rows[i : i + BATCH_SIZE]
         with database.batch() as batch:
-            batch.insert(table=table, columns=columns, values=chunk)
+            if use_insert_or_update:
+                batch.insert_or_update(table=table, columns=columns, values=chunk)
+            else:
+                batch.insert(table=table, columns=columns, values=chunk)
         inserted += len(chunk)
         if inserted % 5000 == 0 or inserted == total:
             print(f"  {table}: {inserted}/{total} rows inserted")
@@ -107,6 +111,24 @@ def main():
         relationships,
     )
     print(f"  Relationships done in {time.time() - t0:.1f}s")
+
+    # Step 3: Insert reverse edges for bidirectional BFS traversal.
+    # The KG stores each relationship once (entity_id1→entity_id2).
+    # We need the reverse (entity_id2→entity_id1) so that application-level
+    # BFS can find neighbors by querying entity_id1 in either direction.
+    existing = set(relationships)
+    reverse_edges = [(id2, id1, rel) for id1, id2, rel in relationships
+                     if (id2, id1, rel) not in existing]
+    print(f"\nInserting {len(reverse_edges)} reverse edges for bidirectional traversal...")
+    t0 = time.time()
+    batch_insert(
+        database,
+        "BioRelationship",
+        ["entity_id1", "entity_id2", "relation_type"],
+        reverse_edges,
+        use_insert_or_update=True,
+    )
+    print(f"  Reverse edges done in {time.time() - t0:.1f}s")
 
     print("\nMigration complete.")
 
