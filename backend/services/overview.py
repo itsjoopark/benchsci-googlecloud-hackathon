@@ -510,8 +510,6 @@ RAG supporting context:
 ORKG scholarly contributions:
 {orkg_text if orkg_text else '- none'}
 
-Previous session summaries:
-{chr(10).join(history_lines) if history_lines else '- none'}
 
 Output format:
 - A short paragraph describing mechanism/association.
