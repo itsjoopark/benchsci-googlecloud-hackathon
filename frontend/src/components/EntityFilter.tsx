@@ -81,12 +81,14 @@ export default function EntityFilter({ entityFilter, onEntityFilterChange }: Pro
           <li>
             <button
               type="button"
-              className={`entity-filter-option ${isAllSelected ? "selected" : ""}`}
+              className={`entity-filter-option entity-filter-option-all ${isAllSelected ? "selected" : ""}`}
               role="menuitemcheckbox"
               aria-checked={isAllSelected}
               onClick={handleAllClick}
             >
-              <span className="entity-filter-check">{isAllSelected ? "✓" : ""}</span>
+              <span className="entity-filter-indicator entity-filter-check">
+                {isAllSelected ? "✓" : ""}
+              </span>
               All types
             </button>
           </li>
@@ -101,12 +103,16 @@ export default function EntityFilter({ entityFilter, onEntityFilterChange }: Pro
                   aria-checked={isSelected}
                   onClick={() => handleTypeToggle(opt.value)}
                 >
-                  <span className="entity-filter-check">{isSelected ? "✓" : ""}</span>
                   <span
-                    className="entity-filter-dot"
+                    className="entity-filter-indicator entity-filter-dot"
                     style={{ background: ENTITY_COLORS[opt.value] }}
+                    aria-hidden="true"
                   />
-                  {opt.label}
+                  <span
+                    className="entity-filter-option-label"
+                  >
+                    {opt.label}
+                  </span>
                 </button>
               </li>
             );
