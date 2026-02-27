@@ -40,7 +40,7 @@ function getConnectingEdges(
   );
 }
 
-function computeCompositeScore(
+export function computeCompositeScore(
   candidateId: string,
   edges: GraphEdge[],
   visibleIds: Set<string>,

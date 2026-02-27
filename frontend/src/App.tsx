@@ -5,12 +5,13 @@ import { queryEntity, expandEntity } from "./data/dataService";
 import { saveSnapshot, loadSnapshot } from "./data/snapshotService";
 import type { GraphSnapshot } from "./data/snapshotService";
 import { getSnapshotIdFromUrl, setSnapshotIdInUrl } from "./utils/urlState";
-import { rankCandidates } from "./utils/rankCandidates";
+import { rankCandidates, computeCompositeScore } from "./utils/rankCandidates";
 import type { OverviewStreamRequestPayload } from "./types/api";
 import PathBreadcrumb from "./components/PathBreadcrumb";
 import GraphCanvas from "./components/GraphCanvas";
 import EvidencePanel from "./components/EvidencePanel";
 import EntityAdvancedSearchPanel from "./components/EntityAdvancedSearchPanel";
+import PathwayPanel from "./components/PathwayPanel";
 import AIOverviewCard from "./components/AIOverviewCard";
 import DeepThinkPanel from "./components/DeepThinkPanel";
 import Toolbar from "./components/Toolbar";
@@ -43,6 +44,11 @@ function App() {
   // Maps an entity ID that was expanded → the entity/edge IDs that were newly added
   const [expansionSnapshots, setExpansionSnapshots] = useState<
     Map<string, { entityIds: string[]; edgeIds: string[] }>
+  >(new Map());
+
+  // Overflow entities from expansion that weren't shown (for "Load More")
+  const [expansionOverflow, setExpansionOverflow] = useState<
+    Map<string, { entities: Entity[]; edges: GraphEdge[] }>
   >(new Map());
 
   const [centerNodeId, setCenterNodeId] = useState("");
@@ -160,6 +166,7 @@ function App() {
           // so the user can double-click the last node to expand
           setExpandedNodes(pathIds.slice(0, -1));
           setExpansionSnapshots(new Map());
+          setExpansionOverflow(new Map());
           setCenterNodeId(payload.center_node_id ?? "");
           setPathNodeIds(pathIds);
           setOverviewHistory([]);
@@ -217,6 +224,7 @@ function App() {
         setSelectedEdge(null);
         setExpandedNodes(centerId ? [centerId] : []);
         setExpansionSnapshots(new Map());
+        setExpansionOverflow(new Map());
         setCenterNodeId(payload.center_node_id ?? "");
         setOverviewHistory([]);
 
@@ -329,6 +337,25 @@ function App() {
           maxResults: MAX_EXPANSION_NODES,
         });
 
+        // Cache overflow entities (those not selected by rankCandidates)
+        if (trulyNew.length > MAX_EXPANSION_NODES) {
+          const keptIds = new Set(keptNew.map((e) => e.id));
+          const visibleIds = new Set(entities.map((e) => e.id));
+          const overflow = trulyNew
+            .filter((e) => !keptIds.has(e.id))
+            .map((entity) => ({
+              entity,
+              score: computeCompositeScore(entity.id, newEd, visibleIds),
+            }))
+            .sort((a, b) => b.score - a.score)
+            .map((s) => s.entity);
+          setExpansionOverflow((prev) => {
+            const next = new Map(prev);
+            next.set(nodeId, { entities: overflow, edges: newEd });
+            return next;
+          });
+        }
+
         const alreadyExisting = newE.filter((e) => existingIds.has(e.id));
         const finalEntities = [...alreadyExisting, ...keptNew];
         const finalNodeIds = new Set([
@@ -396,6 +423,7 @@ function App() {
           setEdges([]);
           setExpandedNodes([]);
           setExpansionSnapshots(new Map());
+          setExpansionOverflow(new Map());
           setSelectedEntity(null);
           setSelectedEdge(null);
           setGraphKey((k) => k + 1);
@@ -415,9 +443,14 @@ function App() {
           );
         }
 
-        // Clean up snapshots for removed entries
+        // Clean up snapshots and overflow for removed entries
         setExpansionSnapshots((snapshots) => {
           const next = new Map(snapshots);
+          removedIds.forEach((id) => next.delete(id));
+          return next;
+        });
+        setExpansionOverflow((prev) => {
+          const next = new Map(prev);
           removedIds.forEach((id) => next.delete(id));
           return next;
         });
@@ -484,6 +517,7 @@ function App() {
     setEdges(snapshot.edges);
     setCenterNodeId(snapshot.centerNodeId);
     setExpansionSnapshots(new Map());
+    setExpansionOverflow(new Map());
     setSelectedEdge(null);
     setOverviewHistory([]);
 
@@ -511,6 +545,73 @@ function App() {
 
     setGraphKey((k) => k + 1);
   }, [addToSelectionHistory]);
+
+  const handleLoadMore = useCallback(
+    (nodeId: string) => {
+      const overflow = expansionOverflow.get(nodeId);
+      if (!overflow) return;
+
+      const MAX_LOAD = 5;
+      // Filter out entities that may have been added via other expansions
+      const currentIds = new Set(entities.map((e) => e.id));
+      const remaining = overflow.entities.filter((e) => !currentIds.has(e.id));
+      if (remaining.length === 0) {
+        setExpansionOverflow((prev) => {
+          const next = new Map(prev);
+          next.delete(nodeId);
+          return next;
+        });
+        return;
+      }
+
+      const batch = remaining.slice(0, MAX_LOAD);
+      const rest = remaining.slice(MAX_LOAD);
+
+      // Determine edges that connect batch nodes to the current graph
+      const batchIds = new Set(batch.map((e) => e.id));
+      const allNodeIds = new Set([...currentIds, ...batchIds]);
+      const newEdges = overflow.edges.filter(
+        (e) => allNodeIds.has(e.source) && allNodeIds.has(e.target) &&
+               (batchIds.has(e.source) || batchIds.has(e.target))
+      );
+
+      // Update expansion snapshot so pruning can undo these nodes
+      const existingEdgeIds = new Set(edges.map((e) => e.id));
+      const newEdgeIds = newEdges.filter((e) => !existingEdgeIds.has(e.id)).map((e) => e.id);
+      setExpansionSnapshots((snapshots) => {
+        const next = new Map(snapshots);
+        const existing = next.get(nodeId);
+        if (existing) {
+          next.set(nodeId, {
+            entityIds: [...existing.entityIds, ...batch.map((e) => e.id)],
+            edgeIds: [...existing.edgeIds, ...newEdgeIds],
+          });
+        }
+        return next;
+      });
+
+      // Update overflow cache
+      if (rest.length > 0) {
+        setExpansionOverflow((prev) => {
+          const next = new Map(prev);
+          next.set(nodeId, { entities: rest, edges: overflow.edges });
+          return next;
+        });
+      } else {
+        setExpansionOverflow((prev) => {
+          const next = new Map(prev);
+          next.delete(nodeId);
+          return next;
+        });
+      }
+
+      // Merge into graph
+      setEntities((prev) => mergeEntities(prev, batch));
+      setEdges((prev) => mergeEdges(prev, newEdges));
+      setTimeout(() => setFitRequest((n) => n + 1), 600);
+    },
+    [expansionOverflow, entities, edges]
+  );
 
   // Receive live node positions from GraphCanvas
   const handlePositionsUpdate = useCallback((positions: Map<string, { x: number; y: number }>) => {
@@ -729,6 +830,12 @@ function App() {
     selectionHistory,
   ]);
 
+  // Derive "Load More" context menu props for GraphCanvas
+  const lastExpandedNodeId = expandedNodes[expandedNodes.length - 1] ?? null;
+  const moreConnectionsCount = lastExpandedNodeId
+    ? (expansionOverflow.get(lastExpandedNodeId)?.entities.length ?? 0)
+    : 0;
+
   const filteredEntities =
     entityFilter === "all" ||
     (Array.isArray(entityFilter) && entityFilter.length === 0)
@@ -771,6 +878,7 @@ function App() {
               onClear={() => {
                 setSelectionHistory([]);
                 setExpansionSnapshots(new Map());
+                setExpansionOverflow(new Map());
               }}
             />
           </div>
@@ -881,6 +989,9 @@ function App() {
           fitRequest={fitRequest}
           pathNodeIds={pathNodeIds}
           onPositionsUpdate={handlePositionsUpdate}
+          lastExpandedNodeId={lastExpandedNodeId}
+          moreConnectionsCount={moreConnectionsCount}
+          onLoadMore={handleLoadMore}
         />
 
         {/* Graph legend (bottom-left) */}
@@ -954,6 +1065,14 @@ function App() {
                     evidence={evidence}
                     entities={entities}
                     onClose={() => setSelectedEdge(null)}
+                  />
+                ) : pathNodeIds.length > 0 ? (
+                  <PathwayPanel
+                    pathNodeIds={pathNodeIds}
+                    entities={entities}
+                    edges={edges}
+                    selectedEntityId={selectedEntity?.id ?? null}
+                    onEdgeSelect={handleEdgeSelect}
                   />
                 ) : selectedEntity ? (
                   <EntityAdvancedSearchPanel

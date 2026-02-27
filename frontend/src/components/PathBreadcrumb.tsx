@@ -88,9 +88,6 @@ export default function PathBreadcrumb({
         );
       })}
 
-      <button className="path-breadcrumb-clear" onClick={onClear}>
-        Clear history
-      </button>
     </div>
   );
 }

@@ -165,9 +165,6 @@ export default function EntityAdvancedSearchPanel({
                           {item.year != null && item.year > 0 && (
                             <span className="entity-advanced-search-source-year">{item.year}</span>
                           )}
-                          {item.pmid && (
-                            <span className="entity-advanced-search-source-pmid">PMID {item.pmid}</span>
-                          )}
                         </div>
                       </a>
                     ))}

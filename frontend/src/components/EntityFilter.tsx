@@ -7,8 +7,6 @@ const ENTITY_TYPE_OPTIONS: { value: EntityType; label: string }[] = [
   { value: "gene", label: "Gene" },
   { value: "disease", label: "Disease" },
   { value: "drug", label: "Drug" },
-  { value: "pathway", label: "Pathway" },
-  { value: "protein", label: "Protein" },
 ];
 
 interface Props {
@@ -33,7 +31,7 @@ export default function EntityFilter({ entityFilter, onEntityFilterChange }: Pro
   const isAllSelected = entityFilter === "all";
   const selectedTypes = isAllSelected ? [] : entityFilter;
 
-  const activeCount = isAllSelected ? 5 : selectedTypes.length;
+  const activeCount = isAllSelected ? ENTITY_TYPE_OPTIONS.length : selectedTypes.length;
 
   const handleAllClick = () => {
     onEntityFilterChange("all");
