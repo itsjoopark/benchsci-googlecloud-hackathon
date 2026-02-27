@@ -24,6 +24,7 @@ class DeepThinkEdge(BaseModel):
 class DeepThinkRequest(BaseModel):
     path: list[DeepThinkPathNode]
     edges: list[DeepThinkEdge]
+    question: str | None = None
 
 
 class DeepThinkChatMessage(BaseModel):
