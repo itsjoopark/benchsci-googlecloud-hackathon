@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import type { Entity, GraphEdge, PathNode } from "./types";
 import { jsonPayloadToGraph } from "./data/adapters";
-import { queryEntity } from "./data/dataService";
+import { queryEntity, expandEntity } from "./data/dataService";
 import SearchBar from "./components/SearchBar";
 import EntityCard from "./components/EntityCard";
 import GraphCanvas from "./components/GraphCanvas";
@@ -32,6 +32,23 @@ function App() {
   const [queryError, setQueryError] = useState<string | null>(null);
   const [backendMessage, setBackendMessage] = useState<string | null>(null);
   const queryAbortRef = useRef<AbortController | null>(null);
+
+  const [isExpanding, setIsExpanding] = useState(false);
+  const [expandError, setExpandError] = useState<string | null>(null);
+  const expandAbortRef = useRef<AbortController | null>(null);
+
+  function mergeEntities(existing: Entity[], incoming: Entity[]): Entity[] {
+    const ids = new Set(existing.map((e) => e.id));
+    return [...existing, ...incoming.filter((e) => !ids.has(e.id))];
+  }
+
+  function mergeEdges(
+    existing: GraphEdge[],
+    incoming: GraphEdge[]
+  ): GraphEdge[] {
+    const ids = new Set(existing.map((e) => e.id));
+    return [...existing, ...incoming.filter((e) => !ids.has(e.id))];
+  }
 
   const addToSelectionHistory = useCallback((entity: Entity) => {
     setSelectionHistory((prev) => {
@@ -117,10 +134,7 @@ function App() {
         setSelectedEdge(null);
         return;
       }
-      const entity =
-        getEntityById(entities, nodeId) ??
-        (graphPayload &&
-          jsonPayloadToGraph(graphPayload).entities.find((e) => e.id === nodeId));
+      const entity = getEntityById(entities, nodeId);
       if (entity) {
         setSelectedEntity(entity);
         setSelectedEdge(null);
@@ -129,12 +143,48 @@ function App() {
         setRightSidebarCollapsed(false);
       }
     },
-    [entities, graphPayload, addToSelectionHistory, selectedEntity]
+    [entities, addToSelectionHistory, selectedEntity]
   );
 
-  const handleNodeExpand = useCallback((nodeId: string) => {
-    setExpandedNodes((prev) => new Set(prev).add(nodeId));
-  }, []);
+  const handleNodeExpand = useCallback(
+    async (nodeId: string) => {
+      if (expandedNodes.has(nodeId) || isExpanding) return;
+
+      expandAbortRef.current?.abort();
+      const controller = new AbortController();
+      expandAbortRef.current = controller;
+
+      setExpandedNodes((prev) => new Set(prev).add(nodeId));
+      setIsExpanding(true);
+      setExpandError(null);
+
+      try {
+        const payload = await expandEntity(nodeId, controller.signal);
+
+        if (payload.message || !payload.nodes?.length) {
+          if (payload.message) setExpandError(payload.message);
+          return;
+        }
+
+        const { entities: newE, edges: newEd } = jsonPayloadToGraph(payload);
+        setEntities((prev) => mergeEntities(prev, newE));
+        setEdges((prev) => mergeEdges(prev, newEd));
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setExpandError(
+          err instanceof Error ? err.message : "Failed to expand node."
+        );
+        setExpandedNodes((prev) => {
+          const n = new Set(prev);
+          n.delete(nodeId);
+          return n;
+        });
+      } finally {
+        setIsExpanding(false);
+      }
+    },
+    [expandedNodes, isExpanding]
+  );
 
   const handleEdgeSelect = useCallback(
     (edgeId: string) => {
@@ -268,6 +318,22 @@ function App() {
           <div className="query-message-banner">
             <span>{backendMessage}</span>
             <button onClick={() => setBackendMessage(null)} aria-label="Dismiss message">&times;</button>
+          </div>
+        )}
+
+        {/* Expand error banner */}
+        {expandError && (
+          <div className="expand-error-banner">
+            <span>{expandError}</span>
+            <button onClick={() => setExpandError(null)} aria-label="Dismiss error">&times;</button>
+          </div>
+        )}
+
+        {/* Expand loading indicator */}
+        {isExpanding && (
+          <div className="expand-loading-indicator">
+            <div className="expand-loading-spinner" />
+            <span>Expanding...</span>
           </div>
         )}
 

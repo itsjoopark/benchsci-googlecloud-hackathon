@@ -135,6 +135,12 @@ export default function GraphCanvas({
   const onAddToPathRef = useRef(onAddToPath);
   const pathIds = new Set(path.map((p) => p.entityId));
 
+  // Position persistence for smooth incremental updates (expand)
+  const nodePositionsRef = useRef<Map<string, { x: number; y: number }>>(
+    new Map()
+  );
+  const isInitialRenderRef = useRef(true);
+
   selectedEntityIdRef.current = selectedEntityId;
   selectedEdgeIdRef.current = selectedEdgeId;
   onNodeSelectRef.current = onNodeSelect;
@@ -163,14 +169,18 @@ export default function GraphCanvas({
     renderer.setPixelRatio(window.devicePixelRatio);
     container.appendChild(renderer.domElement);
 
-    // Build simulation data
-    const simNodes: SimNode[] = entities.map((e) => ({
-      id: e.id,
-      label: e.name,
-      entityType: e.type,
-      color: e.color ?? ENTITY_COLORS[e.type],
-      size: e.size ?? 1,
-    }));
+    // Build simulation data — restore saved positions for existing nodes
+    const simNodes: SimNode[] = entities.map((e) => {
+      const savedPos = nodePositionsRef.current.get(e.id);
+      return {
+        id: e.id,
+        label: e.name,
+        entityType: e.type,
+        color: e.color ?? ENTITY_COLORS[e.type],
+        size: e.size ?? 1,
+        ...(savedPos ? { x: savedPos.x, y: savedPos.y } : {}),
+      };
+    });
 
     const nodeMap = new Map<string, SimNode>();
     simNodes.forEach((n) => nodeMap.set(n.id, n));
@@ -183,6 +193,32 @@ export default function GraphCanvas({
         target: e.target,
         color: e.color,
       }));
+
+    // Position new nodes (no saved position) near connected existing nodes
+    simNodes.forEach((node) => {
+      if (node.x !== undefined && node.y !== undefined) return; // already positioned
+      const neighbors = simLinks
+        .filter((l) => {
+          const sId = typeof l.source === "string" ? l.source : (l.source as SimNode).id;
+          const tId = typeof l.target === "string" ? l.target : (l.target as SimNode).id;
+          return sId === node.id || tId === node.id;
+        })
+        .map((l) => {
+          const sId = typeof l.source === "string" ? l.source : (l.source as SimNode).id;
+          const tId = typeof l.target === "string" ? l.target : (l.target as SimNode).id;
+          const otherId = sId === node.id ? tId : sId;
+          return nodeMap.get(otherId);
+        })
+        .filter((n): n is SimNode => !!n && n.x !== undefined && n.y !== undefined);
+
+      if (neighbors.length > 0) {
+        const avgX = neighbors.reduce((s, n) => s + n.x!, 0) / neighbors.length;
+        const avgY = neighbors.reduce((s, n) => s + n.y!, 0) / neighbors.length;
+        const jitter = () => (Math.random() - 0.5) * 60;
+        node.x = avgX + jitter();
+        node.y = avgY + jitter();
+      }
+    });
 
     // Create edge lines first (render behind nodes)
     const edgeMeshes: SimLink[] = [];
@@ -296,9 +332,19 @@ export default function GraphCanvas({
       .force("collide", forceCollide((d) => NODE_RADIUS * (d.size ?? 1) * 2.5))
       .alphaDecay(0.02);
 
+    // Lower alpha for incremental updates so existing nodes barely move
+    const isIncremental = !isInitialRenderRef.current;
+    if (isIncremental) {
+      simulation.alpha(0.3);
+    }
+    isInitialRenderRef.current = false;
+
     simulation.on("tick", () => {
       simNodes.forEach((node) => {
         const r = NODE_RADIUS * node.size;
+        if (node.x !== undefined && node.y !== undefined) {
+          nodePositionsRef.current.set(node.id, { x: node.x, y: node.y });
+        }
         if (node.mesh && node.x !== undefined && node.y !== undefined) {
           node.mesh.position.x = node.x;
           node.mesh.position.y = node.y;
@@ -496,7 +542,7 @@ export default function GraphCanvas({
             clickTimer = setTimeout(() => {
               clickTimer = null;
               onNodeSelectRef.current(nodeId);
-            }, 150);
+            }, 300);
           }
           return;
         }

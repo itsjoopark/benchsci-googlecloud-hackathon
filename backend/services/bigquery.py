@@ -91,6 +91,37 @@ async def find_entity(
     }
 
 
+async def find_entity_by_id(entity_id: str) -> dict | None:
+    """Find an entity by exact EntityId match in C23_BioEntities."""
+    sql = f"""
+    SELECT EntityId, Type, Mention
+    FROM {_table("C23_BioEntities")}
+    WHERE EntityId = @entity_id
+    LIMIT 1
+    """
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("entity_id", "STRING", entity_id),
+        ]
+    )
+    client = _get_client()
+
+    rows = await asyncio.to_thread(
+        lambda: list(client.query(sql, job_config=job_config).result())
+    )
+
+    if not rows:
+        return None
+
+    row = rows[0]
+    return {
+        "entity_id": row["EntityId"],
+        "type": row["Type"],
+        "mention": row["Mention"],
+    }
+
+
 async def find_related_entities(entity_id: str) -> list[dict]:
     """Find entities related to the given entity via C21_Bioentity_Relationships."""
     sql = f"""
