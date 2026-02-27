@@ -19,7 +19,7 @@
 .search-input {
   width: 100%;
   padding: var(--space-sm) var(--space-sm) var(--space-sm) 36px;
-  background: var(--color-bg-elevated);
+  background: var(--glass-card-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   color: var(--color-text-primary);
@@ -41,7 +41,9 @@
   left: var(--space-lg);
   right: var(--space-lg);
   top: calc(100% - var(--space-sm));
-  background: var(--color-bg-elevated);
+  background: var(--glass-card-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   list-style: none;

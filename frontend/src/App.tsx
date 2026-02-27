@@ -1,7 +1,10 @@
-import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import type { Entity, GraphEdge, EntityFilterValue } from "./types";
 import { jsonPayloadToGraph } from "./data/adapters";
 import { queryEntity, expandEntity } from "./data/dataService";
+import { saveSnapshot, loadSnapshot } from "./data/snapshotService";
+import type { GraphSnapshot } from "./data/snapshotService";
+import { getSnapshotIdFromUrl, setSnapshotIdInUrl } from "./utils/urlState";
 import type { OverviewStreamRequestPayload } from "./types/api";
 import SearchBar from "./components/SearchBar";
 import PathBreadcrumb from "./components/PathBreadcrumb";
@@ -32,13 +35,7 @@ function App() {
   const [selectionHistory, setSelectionHistory] = useState<Entity[]>([]);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
   const [chatExpanded, setChatExpanded] = useState(true);
-  const [overviewRatio, setOverviewRatio] = useState(0.75);
-  const rightPaneRef = useRef<HTMLElement>(null);
-  // Keeps a live copy of overviewRatio so the callback closure stays fresh
-  const overviewRatioLiveRef = useRef(0.75);
-  overviewRatioLiveRef.current = overviewRatio;
-  // Saved ratio before "Unpack This" expands the chat (restored on collapse)
-  const savedOverviewRatioRef = useRef(0.75);
+  const [activeRightSection, setActiveRightSection] = useState<'overview' | 'search' | 'deepthink'>('overview');
 
   // Maps an entity ID that was expanded → the entity/edge IDs that were newly added
   const [expansionSnapshots, setExpansionSnapshots] = useState<
@@ -58,6 +55,18 @@ function App() {
   const [isExpanding, setIsExpanding] = useState(false);
   const [expandError, setExpandError] = useState<string | null>(null);
   const expandAbortRef = useRef<AbortController | null>(null);
+
+  // Ordered node IDs when displaying a shortest-path result
+  const [pathNodeIds, setPathNodeIds] = useState<string[]>([]);
+
+  // Current search query (for snapshot saving)
+  const [currentQuery, setCurrentQuery] = useState("");
+  // Latest node positions from GraphCanvas (for snapshot saving)
+  const graphPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  // Whether a snapshot is currently being saved
+  const [isSavingSnapshot, setIsSavingSnapshot] = useState(false);
+  // Brief toast message for share confirmation
+  const [shareToast, setShareToast] = useState<string | null>(null);
 
   // Snapshot of the initial query result so Reset can restore it
   const initialGraphStateRef = useRef<{ entities: Entity[]; edges: GraphEdge[]; centerNodeId: string } | null>(null);
@@ -104,9 +113,11 @@ function App() {
       const controller = new AbortController();
       queryAbortRef.current = controller;
 
+      setCurrentQuery(query);
       setIsQuerying(true);
       setQueryError(null);
       setBackendMessage(null);
+      setPathNodeIds([]);
 
       try {
         const payload = await queryEntity(query, controller.signal);
@@ -126,6 +137,38 @@ function App() {
         }
 
         const { entities: e, edges: ed } = jsonPayloadToGraph(payload);
+
+        // === PATH MODE: shortest path response ===
+        if (payload.path_node_ids && payload.path_node_ids.length > 0) {
+          // Show ALL nodes on the path (no neighbor limiting)
+          initialGraphStateRef.current = {
+            entities: e,
+            edges: ed,
+            centerNodeId: payload.center_node_id ?? "",
+          };
+
+          setEntities(e);
+          setEdges(ed);
+          setSelectedEdge(null);
+          setExpandedNodes(payload.path_node_ids);
+          setExpansionSnapshots(new Map());
+          setCenterNodeId(payload.center_node_id ?? "");
+          setPathNodeIds(payload.path_node_ids);
+          setOverviewHistory([]);
+
+          // Set selection history to all path entities for DeepThink
+          setSelectionHistory(e);
+          if (e[0]) {
+            setSelectedEntity(e[0]);
+          }
+
+          setGraphKey((k) => k + 1);
+          setChatExpanded(false);
+          return;
+        }
+
+        // === SEARCH MODE: existing single-entity flow ===
+        setPathNodeIds([]);
 
         // Limit initial connections to 5 neighbors around the seed node
         const MAX_INITIAL_NODES = 5;
@@ -237,9 +280,10 @@ function App() {
         setSelectedEdge(null);
         setSidebarOpen(true);
         setRightSidebarCollapsed(false);
+        addToSelectionHistory(entity);
       }
     },
-    [entities, selectedEntity, disabledNodeIds]
+    [entities, selectedEntity, disabledNodeIds, addToSelectionHistory]
   );
 
   const handleNodeExpand = useCallback(
@@ -416,40 +460,6 @@ function App() {
     [edges]
   );
 
-  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const pane = rightPaneRef.current;
-    if (!pane) return;
-    const onMouseMove = (ev: MouseEvent) => {
-      const rect = pane.getBoundingClientRect();
-      const ratio = (ev.clientY - rect.top) / rect.height;
-      setOverviewRatio(Math.max(0.15, Math.min(0.90, ratio)));
-    };
-    const onMouseUp = () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-  }, []);
-
-  const handleDeepThinkOpenChange = useCallback((open: boolean) => {
-    if (open) {
-      savedOverviewRatioRef.current = overviewRatioLiveRef.current;
-      setOverviewRatio(0);
-    } else {
-      setOverviewRatio(savedOverviewRatioRef.current);
-    }
-  }, []);
-
-  // Restore overview ratio when the DeepThink panel is hidden (path drops below 2)
-  const deepThinkPanelVisible = selectionHistory.length >= 2;
-  useEffect(() => {
-    if (!deepThinkPanelVisible && overviewRatioLiveRef.current === 0) {
-      setOverviewRatio(savedOverviewRatioRef.current);
-    }
-  }, [deepThinkPanelVisible]);
-
   const handleFit = useCallback(() => setGraphKey((k) => k + 1), []);
 
   const handleResetExploration = useCallback(() => {
@@ -470,6 +480,116 @@ function App() {
     else { setSelectedEntity(null); }
     setGraphKey((k) => k + 1);
   }, [addToSelectionHistory]);
+
+  // Receive live node positions from GraphCanvas
+  const handlePositionsUpdate = useCallback((positions: Map<string, { x: number; y: number }>) => {
+    graphPositionsRef.current = positions;
+  }, []);
+
+  // Save current graph state as a shareable snapshot
+  const handleSaveSnapshot = useCallback(async () => {
+    if (isSavingSnapshot || entities.length === 0) return;
+    setIsSavingSnapshot(true);
+    try {
+      const nodePositions: Record<string, { x: number; y: number }> = {};
+      graphPositionsRef.current.forEach((pos, id) => {
+        nodePositions[id] = { x: pos.x, y: pos.y };
+      });
+
+      const snapshot: GraphSnapshot = {
+        query: currentQuery,
+        entities,
+        edges,
+        expanded_nodes: expandedNodes,
+        center_node_id: centerNodeId,
+        path_node_ids: pathNodeIds,
+        entity_filter: entityFilter,
+        node_positions: nodePositions,
+        selection_history: selectionHistory,
+        selected_entity_id: selectedEntity?.id ?? null,
+      };
+
+      const id = await saveSnapshot(snapshot);
+      setSnapshotIdInUrl(id);
+
+      // Copy URL to clipboard (separate try/catch so save success isn't masked)
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        setShareToast("Link copied!");
+      } catch {
+        // Clipboard may fail in insecure contexts — still show the URL updated
+        setShareToast("Snapshot saved! Copy the URL to share.");
+      }
+      setTimeout(() => setShareToast(null), 2500);
+    } catch (err) {
+      console.error("Failed to save snapshot:", err);
+      setShareToast("Failed to save snapshot");
+      setTimeout(() => setShareToast(null), 2500);
+    } finally {
+      setIsSavingSnapshot(false);
+    }
+  }, [isSavingSnapshot, entities, edges, expandedNodes, centerNodeId, pathNodeIds, entityFilter, currentQuery, selectionHistory, selectedEntity]);
+
+  // Restore snapshot from URL on mount
+  useEffect(() => {
+    const snapshotId = getSnapshotIdFromUrl();
+    if (!snapshotId) return;
+
+    loadSnapshot(snapshotId).then((snapshot) => {
+      if (!snapshot) return;
+
+      // Apply saved positions as layoutX/layoutY so GraphCanvas renders instantly
+      const entitiesWithLayout: Entity[] = snapshot.entities.map((e) => {
+        const pos = snapshot.node_positions[e.id];
+        return pos ? { ...e, layoutX: pos.x, layoutY: pos.y } : e;
+      });
+
+      setCurrentQuery(snapshot.query);
+      setEntities(entitiesWithLayout);
+      setEdges(snapshot.edges);
+      setExpandedNodes(snapshot.expanded_nodes);
+      setCenterNodeId(snapshot.center_node_id);
+      setPathNodeIds(snapshot.path_node_ids);
+      setEntityFilter(snapshot.entity_filter);
+      setSelectedEdge(null);
+
+      // Restore exploration path (selection history)
+      const restoredHistory = snapshot.selection_history ?? [];
+      if (restoredHistory.length > 0) {
+        setSelectionHistory(restoredHistory);
+      }
+
+      // Restore selected entity — use saved selection, fall back to center node
+      const selectedId = snapshot.selected_entity_id;
+      const selected = selectedId
+        ? entitiesWithLayout.find((e) => e.id === selectedId)
+        : entitiesWithLayout.find((e) => e.id === snapshot.center_node_id);
+      if (selected) {
+        setSelectedEntity(selected);
+        // If no history was saved, at least add the selected entity
+        if (restoredHistory.length === 0) {
+          addToSelectionHistory(selected);
+        }
+      }
+
+      // Open sidebars so exploration path and overview are visible
+      setSidebarOpen(true);
+      setRightSidebarCollapsed(false);
+
+      // Cache for reset
+      initialGraphStateRef.current = {
+        entities: entitiesWithLayout,
+        edges: snapshot.edges,
+        centerNodeId: snapshot.center_node_id,
+      };
+
+      setGraphKey((k) => k + 1);
+      setChatExpanded(false);
+    }).catch(() => {
+      // Silently ignore — user will see empty state
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const graphLoaded = entities.length > 0;
 
@@ -640,7 +760,7 @@ function App() {
             </svg>
           </button>
 
-          <Toolbar onFit={handleFit} disabled={!graphLoaded} canReset={graphLoaded && expandedNodes.length > 1} onReset={handleResetExploration} />
+          <Toolbar onFit={handleFit} disabled={!graphLoaded} canReset={graphLoaded && expandedNodes.length > 1} onReset={handleResetExploration} canShare={graphLoaded} onShare={handleSaveSnapshot} isSaving={isSavingSnapshot} />
 
           {graphLoaded && (
             <EntityFilter entityFilter={entityFilter} onEntityFilterChange={setEntityFilter} />
@@ -679,6 +799,11 @@ function App() {
           </div>
         )}
 
+        {/* Share toast */}
+        {shareToast && (
+          <div className="share-toast">{shareToast}</div>
+        )}
+
         {/* Loading overlay */}
         {isQuerying && (
           <div className="query-loading-overlay">
@@ -709,6 +834,8 @@ function App() {
           onNodeExpand={handleNodeExpand}
           onEdgeSelect={handleEdgeSelect}
           disabledNodeIds={disabledNodeIds}
+          pathNodeIds={pathNodeIds}
+          onPositionsUpdate={handlePositionsUpdate}
         />
 
         {/* Graph legend (bottom-left) */}
@@ -738,7 +865,6 @@ function App() {
       {/* Right Pane */}
       {(selectedEdge || selectedEntity || selectionHistory.length >= 2) && (
         <aside
-          ref={rightPaneRef}
           className={`pane pane-right ${rightSidebarCollapsed ? "collapsed" : ""}`}
         >
           {rightSidebarCollapsed ? (
@@ -760,8 +886,8 @@ function App() {
             </button>
           ) : (
             <div className="right-pane-inner">
-              {/* Resizable top: AI Overview */}
-              <div className="pane-top-section" style={{ flex: `0 0 ${overviewRatio * 100}%` }}>
+              {/* Stacked top: AI Overview */}
+              <div className={`pane-top-section${activeRightSection === 'deepthink' ? ' section-collapsed' : ''}`}>
                 <AIOverviewCard
                   key={overviewRequest ? `${overviewRequest.selection_type}:${overviewRequest.edge_id ?? overviewRequest.node_id ?? "none"}` : "overview-none"}
                   request={overviewRequest}
@@ -776,11 +902,8 @@ function App() {
                 />
               </div>
 
-              {/* Drag handle to resize the overview vs content split */}
-              <div className="pane-resize-handle" onMouseDown={handleDividerMouseDown} />
-
               {/* Scrollable middle: entity / edge panels */}
-              <div className="right-pane-middle">
+              <div className={`right-pane-middle${activeRightSection === 'deepthink' ? ' section-collapsed' : ''}`}>
                 {selectedEdge ? (
                   <EvidencePanel
                     edge={selectedEdge}
@@ -800,8 +923,12 @@ function App() {
               </div>
 
               {/* Pinned bottom: Unpack This chatbot */}
-              {selectionHistory.length >= 2 && (
-                <DeepThinkPanel path={deepThinkPath} edges={edges} onOpenChange={handleDeepThinkOpenChange} />
+              {selectionHistory.length >= 1 && (
+                <DeepThinkPanel
+                  path={deepThinkPath}
+                  edges={edges}
+                  onOpenChange={(open) => setActiveRightSection(open ? 'deepthink' : 'overview')}
+                />
               )}
             </div>
           )}

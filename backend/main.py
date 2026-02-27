@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import settings
 from backend.routers.query import router as query_router
+from backend.routers.snapshot import router as snapshot_router
 
 logging.basicConfig(level=logging.INFO)
 
@@ -20,6 +21,7 @@ app.add_middleware(
 )
 
 app.include_router(query_router)
+app.include_router(snapshot_router)
 
 
 @app.get("/health")

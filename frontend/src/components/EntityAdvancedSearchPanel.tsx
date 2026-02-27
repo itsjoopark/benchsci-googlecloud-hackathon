@@ -83,7 +83,7 @@ export default function EntityAdvancedSearchPanel({
     <div className="entity-advanced-search-panel">
       <div className="entity-advanced-search-header">
         <h2 className="entity-advanced-search-title">
-          {entity.name} Advanced Search
+          Sources
         </h2>
         <button
           className="entity-advanced-search-collapse"

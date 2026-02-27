@@ -7,16 +7,23 @@ from backend.models.deep_think import DeepThinkChatRequest, DeepThinkRequest
 from backend.models.overview import OverviewStreamRequest
 from backend.models.request import QueryRequest, ExpandRequest
 from backend.models.response import JsonGraphPayload
-from backend.services.gemini import extract_entity
+from backend.services.gemini import extract_entity, extract_query_intent
 from backend.services.deep_think import stream_deep_think_chat_events, stream_deep_think_events
 from backend.services.overview import stream_overview_events, verify_vector_overview
 from backend.services.bigquery import (
     find_entity,
     find_entity_by_id,
+    find_entities_by_ids,
     find_related_entities,
     fetch_paper_details,
+    fetch_edge_pmids,
 )
-from backend.services.graph_builder import build_graph_payload, build_not_found_response
+from backend.services.graph_builder import (
+    build_graph_payload,
+    build_path_graph_payload,
+    build_not_found_response,
+)
+from backend.services.pathfinder import find_shortest_path
 
 logger = logging.getLogger(__name__)
 
@@ -25,36 +32,109 @@ router = APIRouter(prefix="/api")
 
 @router.post("/query", response_model=JsonGraphPayload)
 async def query_entity(request: QueryRequest) -> JsonGraphPayload:
-    # Step 1: Extract entity from natural language query
+    # Step 1: Use Gemini function calling to determine intent
     try:
-        extracted = await extract_entity(request.query)
-        logger.info("Extracted entity: %s", extracted)
+        func_name, args = await extract_query_intent(request.query)
+        logger.info("Gemini intent: func=%s args=%s", func_name, args)
     except Exception as e:
-        logger.error("Gemini extraction failed: %s", e)
-        raise HTTPException(status_code=502, detail="Entity extraction failed") from e
+        # Fallback to existing single-entity extraction
+        logger.warning("Intent extraction failed (%s), falling back to single-entity", e)
+        try:
+            extracted = await extract_entity(request.query)
+            func_name = "search_entity"
+            args = {"entity_name": extracted.entity_name, "entity_type": extracted.entity_type}
+        except Exception as e2:
+            logger.error("Fallback extraction also failed: %s", e2)
+            raise HTTPException(status_code=502, detail="Entity extraction failed") from e2
 
-    # Step 2: Look up entity in BigQuery
+    # Step 2: Dispatch based on function call
+    if func_name == "find_shortest_path":
+        return await _handle_shortest_path(args)
+    else:
+        return await _handle_search_entity(args)
+
+
+async def _handle_search_entity(args: dict) -> JsonGraphPayload:
+    """Existing single-entity search flow."""
     entity = await find_entity(
-        extracted.entity_name,
-        entity_type=extracted.entity_type,
+        args.get("entity_name", ""),
+        entity_type=args.get("entity_type"),
     )
     if not entity:
-        return build_not_found_response(extracted.entity_name)
+        return build_not_found_response(args.get("entity_name", ""))
 
-    # Step 3: Find related entities
     related = await find_related_entities(entity["entity_id"])
 
-    # Step 4: Collect all PMIDs and batch-fetch paper details
     all_pmids: list[str] = []
     for rel in related:
         all_pmids.extend(rel.get("pmids", []))
-    unique_pmids = list(set(all_pmids))
+    paper_details = await fetch_paper_details(list(set(all_pmids)))
 
-    paper_details = await fetch_paper_details(unique_pmids)
+    return build_graph_payload(entity, related, paper_details)
 
-    # Step 5: Build graph payload
-    payload = build_graph_payload(entity, related, paper_details)
-    return payload
+
+async def _handle_shortest_path(args: dict) -> JsonGraphPayload:
+    """Find and return the shortest path between two entities."""
+    name1 = args.get("entity1_name", "")
+    type1 = args.get("entity1_type")
+    name2 = args.get("entity2_name", "")
+    type2 = args.get("entity2_type")
+
+    if not name1 or not name2:
+        return build_not_found_response("Could not identify two entities in the query.")
+
+    # Look up both entities in BigQuery
+    entity1 = await find_entity(name1, entity_type=type1)
+    if not entity1:
+        return build_not_found_response(name1)
+
+    entity2 = await find_entity(name2, entity_type=type2)
+    if not entity2:
+        return build_not_found_response(name2)
+
+    id1 = entity1["entity_id"]
+    id2 = entity2["entity_id"]
+
+    if id1 == id2:
+        return JsonGraphPayload(
+            center_node_id=id1,
+            nodes=[],
+            edges=[],
+            message=f"'{name1}' and '{name2}' resolve to the same entity.",
+        )
+
+    # Find shortest path via Spanner Graph (single GQL query)
+    path_segments = await find_shortest_path(id1, id2)
+
+    if path_segments is None:
+        return JsonGraphPayload(
+            center_node_id=id1,
+            nodes=[],
+            edges=[],
+            message=f"No path found between '{name1}' and '{name2}' within the knowledge graph.",
+        )
+
+    # Collect all entity IDs along the path
+    path_ids = [id1]
+    for seg in path_segments:
+        if seg["to"] not in path_ids:
+            path_ids.append(seg["to"])
+
+    # Fetch PMIDs for path edges from BigQuery (Spanner returns structure only)
+    edge_pairs = [(seg["from"], seg["to"], seg["relation_type"]) for seg in path_segments]
+    edge_pmids = await fetch_edge_pmids(edge_pairs)
+
+    # Enrich path segments with PMIDs
+    for seg in path_segments:
+        key = f"{seg['from']}--{seg['to']}--{seg['relation_type']}"
+        seg["pmids"] = edge_pmids.get(key, [])
+
+    # Batch-fetch entity details and paper details
+    entity_details = await find_entities_by_ids(path_ids)
+    all_pmids: list[str] = [p for seg in path_segments for p in seg.get("pmids", [])]
+    paper_details = await fetch_paper_details(list(set(all_pmids)))
+
+    return build_path_graph_payload(path_ids, path_segments, entity_details, paper_details)
 
 
 @router.post("/expand", response_model=JsonGraphPayload)

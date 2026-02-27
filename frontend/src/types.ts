@@ -8,6 +8,8 @@ export interface Entity {
   metadata: Record<string, string | number | string[] | undefined>;
   color?: string;
   size?: number;
+  layoutX?: number;
+  layoutY?: number;
 }
 
 export interface GraphEdge {
