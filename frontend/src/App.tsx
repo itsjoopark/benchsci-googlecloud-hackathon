@@ -28,6 +28,11 @@ function App() {
   const [selectionHistory, setSelectionHistory] = useState<Entity[]>([]);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
 
+  // Maps an entity ID that was expanded → the entity/edge IDs that were newly added
+  const [expansionSnapshots, setExpansionSnapshots] = useState<
+    Map<string, { entityIds: string[]; edgeIds: string[] }>
+  >(new Map());
+
   const [isQuerying, setIsQuerying] = useState(false);
   const [queryError, setQueryError] = useState<string | null>(null);
   const [backendMessage, setBackendMessage] = useState<string | null>(null);
@@ -37,9 +42,24 @@ function App() {
   const [expandError, setExpandError] = useState<string | null>(null);
   const expandAbortRef = useRef<AbortController | null>(null);
 
+  /** Merge incoming entities from an expand response. New entities are added;
+   * existing entities that appear in the response are updated with the
+   * incoming size (and optional fields) so node sizes reflect co-occurrence
+   * relative to the newly expanded/clicked node. */
   function mergeEntities(existing: Entity[], incoming: Entity[]): Entity[] {
-    const ids = new Set(existing.map((e) => e.id));
-    return [...existing, ...incoming.filter((e) => !ids.has(e.id))];
+    const byId = new Map<string, Entity>(existing.map((e) => [e.id, e]));
+    for (const e of incoming) {
+      const current = byId.get(e.id);
+      if (!current) {
+        byId.set(e.id, e);
+      } else {
+        byId.set(e.id, {
+          ...current,
+          size: e.size ?? current.size,
+        });
+      }
+    }
+    return Array.from(byId.values());
   }
 
   function mergeEdges(
@@ -121,6 +141,7 @@ function App() {
         setSelectedEdge(null);
         setPath([]);
         setExpandedNodes(new Set());
+        setExpansionSnapshots(new Map());
 
         // Auto-select the center node
         const center = e.find((ent) => ent.id === payload.center_node_id);
@@ -150,6 +171,7 @@ function App() {
       setSelectedEdge(null);
       setPath([]);
       setExpandedNodes(new Set());
+      setExpansionSnapshots(new Map());
       addToSelectionHistory(entity);
       setSidebarOpen(true);
       setRightSidebarCollapsed(false);
@@ -170,17 +192,24 @@ function App() {
       if (entity) {
         setSelectedEntity(entity);
         setSelectedEdge(null);
-        addToSelectionHistory(entity);
         setSidebarOpen(true);
         setRightSidebarCollapsed(false);
       }
     },
-    [entities, addToSelectionHistory, selectedEntity]
+    [entities, selectedEntity]
   );
 
   const handleNodeExpand = useCallback(
     async (nodeId: string) => {
       if (expandedNodes.has(nodeId) || isExpanding) return;
+
+      // Also add to selection history on double-click expand
+      const entity = getEntityById(entities, nodeId);
+      if (entity) {
+        addToSelectionHistory(entity);
+        setSidebarOpen(true);
+        setRightSidebarCollapsed(false);
+      }
 
       expandAbortRef.current?.abort();
       const controller = new AbortController();
@@ -232,6 +261,18 @@ function App() {
           (e) => finalNodeIds.has(e.source) && finalNodeIds.has(e.target)
         );
 
+        // Track newly added IDs for pruning
+        const newEntityIds = keptNew.map((e) => e.id);
+        const existingEdgeIds = new Set(edges.map((e) => e.id));
+        const newEdgeIds = finalEdges
+          .filter((e) => !existingEdgeIds.has(e.id))
+          .map((e) => e.id);
+        setExpansionSnapshots((snapshots) => {
+          const next = new Map(snapshots);
+          next.set(nodeId, { entityIds: newEntityIds, edgeIds: newEdgeIds });
+          return next;
+        });
+
         setEntities((prev) => mergeEntities(prev, finalEntities));
         setEdges((prev) => mergeEdges(prev, finalEdges));
       } catch (err) {
@@ -248,7 +289,86 @@ function App() {
         setIsExpanding(false);
       }
     },
-    [expandedNodes, isExpanding, entities]
+    [expandedNodes, isExpanding, entities, addToSelectionHistory, edges]
+  );
+
+  const handlePruneHistory = useCallback(
+    (pruneIndex: number) => {
+      // selectionHistory is newest-first; pruneIndex and everything above (0..pruneIndex)
+      // is removed. Everything from pruneIndex+1 onward is kept.
+      setSelectionHistory((prev) => {
+        const removed = prev.slice(0, pruneIndex + 1);
+        const kept = prev.slice(pruneIndex + 1);
+
+        // Collect entity/edge IDs introduced by expansions of removed history entries
+        const idsToRemove = new Set<string>();
+        const edgeIdsToRemove = new Set<string>();
+        for (const removedEntity of removed) {
+          const snap = expansionSnapshots.get(removedEntity.id);
+          if (snap) {
+            snap.entityIds.forEach((id) => idsToRemove.add(id));
+            snap.edgeIds.forEach((id) => edgeIdsToRemove.add(id));
+          }
+        }
+
+        // Also remove the expanded-node markers
+        const removedIds = new Set(removed.map((e) => e.id));
+        setExpandedNodes((prev) => {
+          const next = new Set(prev);
+          removedIds.forEach((id) => next.delete(id));
+          return next;
+        });
+
+        // If the history becomes empty, wipe the entire graph
+        if (kept.length === 0) {
+          setEntities([]);
+          setEdges([]);
+          setExpandedNodes(new Set());
+          setExpansionSnapshots(new Map());
+          setSelectedEntity(null);
+          setSelectedEdge(null);
+          setPath([]);
+          setGraphKey((k) => k + 1);
+          return kept;
+        }
+
+        // Prune entities and edges from the graph
+        if (idsToRemove.size > 0 || edgeIdsToRemove.size > 0) {
+          setEntities((prev) => prev.filter((e) => !idsToRemove.has(e.id)));
+          setEdges((prev) =>
+            prev.filter(
+              (e) =>
+                !edgeIdsToRemove.has(e.id) &&
+                !idsToRemove.has(e.source) &&
+                !idsToRemove.has(e.target)
+            )
+          );
+        }
+
+        // Clean up snapshots for removed entries
+        setExpansionSnapshots((snapshots) => {
+          const next = new Map(snapshots);
+          removedIds.forEach((id) => next.delete(id));
+          return next;
+        });
+
+        // Clear selected entity/edge if they're being pruned
+        setSelectedEntity((sel) =>
+          sel && (removedIds.has(sel.id) || idsToRemove.has(sel.id)) ? null : sel
+        );
+        setSelectedEdge((sel) =>
+          sel &&
+          (edgeIdsToRemove.has(sel.id) ||
+            idsToRemove.has(sel.source) ||
+            idsToRemove.has(sel.target))
+            ? null
+            : sel
+        );
+
+        return kept;
+      });
+    },
+    [expansionSnapshots]
   );
 
   const handleEdgeSelect = useCallback(
@@ -294,6 +414,14 @@ function App() {
 
   const graphLoaded = entities.length > 0;
 
+  // Edges that connect any two nodes in the selection history
+  const historyNodeIds = new Set(selectionHistory.map((e) => e.id));
+  const historyEdgeIds = new Set(
+    edges
+      .filter((e) => historyNodeIds.has(e.source) && historyNodeIds.has(e.target))
+      .map((e) => e.id)
+  );
+
   const evidence = selectedEdge?.evidence ?? [];
 
   const filteredEntities =
@@ -322,13 +450,26 @@ function App() {
         </div>
         <SearchBar entities={entities} onSelect={handleSearchSelect} />
         <div className="path-history-list">
-          {selectionHistory.map((entity) => (
-            <EntityCard key={entity.id} entity={entity} />
+          {selectionHistory.map((entity, idx) => (
+            <div key={entity.id} className="path-history-entry">
+              <EntityCard entity={entity} />
+              <button
+                className="path-history-prune"
+                onClick={() => handlePruneHistory(idx)}
+                aria-label={`Remove ${entity.name} and newer entries`}
+                title="Prune from here"
+              >
+                &times;
+              </button>
+            </div>
           ))}
           {selectionHistory.length > 0 && (
             <button
               className="path-history-clear"
-              onClick={() => setSelectionHistory([])}
+              onClick={() => {
+                setSelectionHistory([]);
+                setExpansionSnapshots(new Map());
+              }}
             >
               Clear history
             </button>
@@ -428,6 +569,7 @@ function App() {
           selectedEdgeId={selectedEdge?.id ?? null}
           expandedNodes={expandedNodes}
           path={path}
+          historyEdgeIds={historyEdgeIds}
           onNodeSelect={handleNodeSelect}
           onNodeExpand={handleNodeExpand}
           onEdgeSelect={handleEdgeSelect}
@@ -476,6 +618,7 @@ function App() {
           ) : selectedEntity ? (
             <EntityAdvancedSearchPanel
               entity={selectedEntity}
+              selectionHistory={selectionHistory}
               edges={edges}
               onCollapse={() => setRightSidebarCollapsed(true)}
             />

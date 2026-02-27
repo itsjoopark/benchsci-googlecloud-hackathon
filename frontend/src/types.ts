@@ -21,6 +21,10 @@ export interface GraphEdge {
   sourceDb: string;
   evidence?: EvidenceItem[];
   color?: string;
+  paperCount?: number;
+  trialCount?: number;
+  patentCount?: number;
+  cooccurrenceScore?: number;
 }
 
 export interface EvidenceItem {
