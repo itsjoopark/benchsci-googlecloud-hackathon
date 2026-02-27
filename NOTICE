@@ -1,0 +1,77 @@
+MultihopWanderer — Third-Party Notices
+=======================================
+
+This product includes software developed by third parties.
+The following packages are used under their respective open-source licenses.
+
+-------------------------------------------------------------------------------
+Frontend
+-------------------------------------------------------------------------------
+
+React 19 — MIT License
+  https://github.com/facebook/react
+
+Three.js 0.183 — MIT License
+  https://github.com/mrdoob/three.js
+
+d3-force 3.0 — ISC License
+  https://github.com/d3/d3-force
+
+Vite 7 — MIT License
+  https://github.com/vitejs/vite
+
+TypeScript 5.9 — Apache License 2.0
+  https://github.com/microsoft/TypeScript
+
+-------------------------------------------------------------------------------
+Backend
+-------------------------------------------------------------------------------
+
+FastAPI 0.116 — MIT License
+  https://github.com/tiangolo/fastapi
+
+Uvicorn 0.35 — BSD 3-Clause License
+  https://github.com/encode/uvicorn
+
+Pydantic 2.11 — MIT License
+  https://github.com/pydantic/pydantic
+
+pydantic-settings — MIT License
+  https://github.com/pydantic/pydantic-settings
+
+google-cloud-bigquery — Apache License 2.0
+  https://github.com/googleapis/python-bigquery
+
+google-cloud-spanner — Apache License 2.0
+  https://github.com/googleapis/python-spanner
+
+google-cloud-firestore — Apache License 2.0
+  https://github.com/googleapis/python-firestore
+
+google-generativeai — Apache License 2.0
+  https://github.com/google-gemini/generative-ai-python
+
+google-cloud-aiplatform — Apache License 2.0
+  https://github.com/googleapis/python-aiplatform
+
+pandas — BSD 3-Clause License
+  https://github.com/pandas-dev/pandas
+
+pyarrow — Apache License 2.0
+  https://github.com/apache/arrow
+
+-------------------------------------------------------------------------------
+Data Sources
+-------------------------------------------------------------------------------
+
+PKG 2.0 (Pharmaceutical Knowledge Graph) — accessed via SciDB under the terms
+of the BenchSci Google Cloud Hackathon data agreement.
+
+ORKG (Open Research Knowledge Graph) — CC BY 4.0
+  https://orkg.org
+
+Semantic Scholar Open Research Corpus — ODC-BY 1.0
+  https://www.semanticscholar.org/product/api
+
+-------------------------------------------------------------------------------
+Full license texts are available at https://opensource.org/licenses/

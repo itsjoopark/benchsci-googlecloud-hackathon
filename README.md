@@ -112,6 +112,10 @@ flowchart TB
 - Diversity selection (one representative per entity type, then top scores)
 - Breadcrumb navigation for path traversal
 
+### Load More
+- Right-click context menu on any graph node exposes **Load More** — fetches 20 additional neighbor candidates beyond the default expansion limit
+- Overflow candidates are buffered in memory from the initial expand call; "Load More" drains the buffer without a new API request
+
 ### Shortest Path Finder
 - Natural language query parsing (e.g., "find the path between BRCA1 and breast cancer")
 - Multi-hop traversal via **Cloud Spanner Graph** using GQL + bidirectional BFS
@@ -125,10 +129,10 @@ flowchart TB
 - Co-occurrence scores
 
 ### AI Overviews (RAG-powered)
-- **Retrieval-Augmented Generation** streaming summaries via Server-Sent Events
+- **Retrieval-Augmented Generation** streaming summaries via Server-Sent Events — displayed in the **left sidebar**, updating as the user navigates the graph
 - Vector similarity search using Vertex AI embeddings (top-20 from 150 candidates)
 - Inline citation references `[1]`, `[2]` linked to source evidence
-- History-aware context (last 3 selections)
+- **History-aware context**: overview follows the user's selection history (last 3 selections), connecting the narrative across entities
 - Model cascade: Gemini 3 Flash Preview → 2.5 Flash → 2.0 Flash fallback
 
 ### DeepThink Extended Reasoning
@@ -151,7 +155,7 @@ flowchart TB
 benchsci-googlecloud-hackathon/
 ├── frontend/                   # React 19 + Vite 7 + TypeScript 5.9
 │   ├── src/
-│   │   ├── App.tsx            # Root state container (~900 lines)
+│   │   ├── App.tsx            # Root state container (~1100 lines)
 │   │   ├── components/        # UI + Graph components
 │   │   ├── data/              # dataService, adapters, snapshots
 │   │   ├── types/             # Domain + API TypeScript types
@@ -161,8 +165,8 @@ benchsci-googlecloud-hackathon/
 ├── backend/                    # FastAPI + Python 3.11
 │   ├── main.py                # FastAPI app + CORS
 │   ├── config.py              # Pydantic Settings
-│   ├── routers/               # query, expand, snapshot, overview, deep-think
-│   ├── services/              # bigquery, spanner, gemini, overview, deep_think
+│   ├── routers/               # query.py (all graph routes), snapshot.py
+│   ├── services/              # bigquery, spanner, gemini, overview, deep_think, pathfinder
 │   ├── models/                # Pydantic request/response models
 │   └── Dockerfile             # Python 3.11 Slim
 ├── scripts/gcp/               # Data pipeline + deployment scripts

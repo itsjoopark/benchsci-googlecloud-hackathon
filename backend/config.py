@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     GCP_PROJECT_ID: str = "multihopwanderer-1771992134"
     GCP_REGION: str = "us-central1"
-    GEMINI_ENDPOINT_URL: str = "https://genai-app-entityextraction-1-1772149446997-113940992739.us-central1.run.app/"
+    GEMINI_ENDPOINT_URL: str = ""
     GEMINI_APP_KEY: str = ""
     GEMINI_API_KEY: str = ""
     GOOGLE_CLOUD_API_KEY: str = ""
