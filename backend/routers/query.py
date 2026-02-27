@@ -1,10 +1,13 @@
 import logging
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
+from backend.models.overview import OverviewStreamRequest
 from backend.models.request import QueryRequest, ExpandRequest
 from backend.models.response import JsonGraphPayload
 from backend.services.gemini import extract_entity
+from backend.services.overview import stream_overview_events, verify_vector_overview
 from backend.services.bigquery import (
     find_entity,
     find_entity_by_id,
@@ -72,3 +75,21 @@ async def expand_entity(request: ExpandRequest) -> JsonGraphPayload:
 
     # Step 4: Build graph payload
     return build_graph_payload(entity, related, paper_details)
+
+
+@router.post("/overview/stream")
+async def stream_overview(request: OverviewStreamRequest) -> StreamingResponse:
+    return StreamingResponse(
+        stream_overview_events(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/overview/verify")
+async def verify_overview_vector() -> dict:
+    return verify_vector_overview()

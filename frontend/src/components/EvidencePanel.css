@@ -157,35 +157,3 @@
   color: var(--color-text-secondary);
   text-transform: capitalize;
 }
-
-/* ── AI Rationale ── */
-
-.rationale-section {
-  padding: var(--space-lg);
-  border-top: 1px solid var(--color-border);
-  text-align: center;
-}
-
-.explain-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-xl);
-  background: var(--color-badge-ai);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  opacity: 0.5;
-}
-
-.explain-btn:disabled {
-  cursor: not-allowed;
-}
-
-.rationale-note {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  margin-top: var(--space-sm);
-}
