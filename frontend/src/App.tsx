@@ -29,11 +29,17 @@ function App() {
   const [entityFilter, setEntityFilter] = useState<EntityFilterValue>("all");
   const [selectionHistory, setSelectionHistory] = useState<Entity[]>([]);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
+  const [chatExpanded, setChatExpanded] = useState(true);
 
   // Maps an entity ID that was expanded → the entity/edge IDs that were newly added
   const [expansionSnapshots, setExpansionSnapshots] = useState<
     Map<string, { entityIds: string[]; edgeIds: string[] }>
   >(new Map());
+
+  const [centerNodeId, setCenterNodeId] = useState("");
+  const [overviewHistory, setOverviewHistory] = useState<
+    { selectionKey: string; selectionType: "edge" | "node"; summary: string }[]
+  >([]);
 
   const [isQuerying, setIsQuerying] = useState(false);
   const [queryError, setQueryError] = useState<string | null>(null);

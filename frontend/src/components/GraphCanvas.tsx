@@ -33,6 +33,7 @@ interface SimNode extends SimulationNodeDatum {
   color: string;
   size: number;
   mesh?: THREE.Mesh;
+  nodeSprite?: THREE.Sprite;
   labelSprite?: THREE.Sprite;
 }
 
@@ -48,139 +49,276 @@ const EDGE_GLOW_WIDTH = 4;
 const EDGE_GLOW_OPACITY = 0.25;
 const NODE_RADIUS = 14;
 const BG_COLOR = 0xf0eee9;
-const SELECTED_COLOR = 0xFFD700; // yellow for selected nodes/edges
 const BORDER_INNER_OFFSET = 1;
-const BORDER_OUTER_OFFSET = 2.5; // thickness = 1.5 (halved from original 3)
+const BORDER_OUTER_OFFSET = 2.5;
 
-function createNodeGeometry(entityType: string): THREE.BufferGeometry {
-  switch (entityType) {
-    case "disease": {
-      const shape = new THREE.Shape();
-      shape.moveTo(0, NODE_RADIUS);
-      shape.lineTo(NODE_RADIUS, 0);
-      shape.lineTo(0, -NODE_RADIUS);
-      shape.lineTo(-NODE_RADIUS, 0);
-      shape.closePath();
-      return new THREE.ShapeGeometry(shape);
-    }
-    case "drug": {
-      const r = NODE_RADIUS * 0.85;
-      const cr = 3;
-      const shape = new THREE.Shape();
-      shape.moveTo(-r + cr, -r);
-      shape.lineTo(r - cr, -r);
-      shape.quadraticCurveTo(r, -r, r, -r + cr);
-      shape.lineTo(r, r - cr);
-      shape.quadraticCurveTo(r, r, r - cr, r);
-      shape.lineTo(-r + cr, r);
-      shape.quadraticCurveTo(-r, r, -r, r - cr);
-      shape.lineTo(-r, -r + cr);
-      shape.quadraticCurveTo(-r, -r, -r + cr, -r);
-      return new THREE.ShapeGeometry(shape);
-    }
-    case "pathway": {
-      return new THREE.CircleGeometry(NODE_RADIUS, 6);
-    }
-    case "protein": {
-      const shape = new THREE.Shape();
-      const r = NODE_RADIUS;
-      shape.moveTo(0, r);
-      shape.lineTo(r * Math.cos(Math.PI / 6) * -1, -r * Math.sin(Math.PI / 6));
-      shape.lineTo(r * Math.cos(Math.PI / 6), -r * Math.sin(Math.PI / 6));
-      shape.closePath();
-      return new THREE.ShapeGeometry(shape);
-    }
-    default:
-      return new THREE.CircleGeometry(NODE_RADIUS, 32);
+// Canvas-rendered node texture constants
+const NODE_TEXTURE_SIZE = 256;
+const NODE_CIRCLE_RADIUS = 80;
+const NODE_GLOW_RADIUS = 120;
+const NODE_ICON_RADIUS = 32;
+// 45 * (80/256) ≈ 14 = NODE_RADIUS — keeps border rings aligned with visible circle
+const NODE_SPRITE_WORLD_SIZE = 45;
+const LABEL_PILL_PADDING_X = 10;
+const LABEL_PILL_PADDING_Y = 6;
+const LABEL_PILL_RADIUS = 8;
+
+// --- Color utilities ---
+
+function colorWithAlpha(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function lightenColor(hex: string, amount: number): string {
+  const r = Math.min(255, parseInt(hex.slice(1, 3), 16) + Math.round(255 * amount));
+  const g = Math.min(255, parseInt(hex.slice(3, 5), 16) + Math.round(255 * amount));
+  const b = Math.min(255, parseInt(hex.slice(5, 7), 16) + Math.round(255 * amount));
+  return `rgb(${r},${g},${b})`;
+}
+
+function darkenColor(hex: string, amount: number): string {
+  const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - Math.round(255 * amount));
+  const g = Math.max(0, parseInt(hex.slice(3, 5), 16) - Math.round(255 * amount));
+  const b = Math.max(0, parseInt(hex.slice(5, 7), 16) - Math.round(255 * amount));
+  return `rgb(${r},${g},${b})`;
+}
+
+// --- Icon drawing functions ---
+
+function drawGeneIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
+  // Double helix: two sine-wave strands + horizontal rungs
+  ctx.strokeStyle = "rgba(255,255,255,0.9)";
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = "round";
+  const steps = 20;
+  const amplitude = r * 0.35;
+  const height = r * 1.6;
+  // First strand
+  ctx.beginPath();
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const y = cy - height / 2 + t * height;
+    const x = cx + Math.sin(t * Math.PI * 2) * amplitude;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  // Second strand
+  ctx.beginPath();
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const y = cy - height / 2 + t * height;
+    const x = cx - Math.sin(t * Math.PI * 2) * amplitude;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  // Rungs
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i <= 4; i++) {
+    const t = (i + 0.5) / 5;
+    const y = cy - height / 2 + t * height;
+    const x1 = cx + Math.sin(t * Math.PI * 2) * amplitude;
+    const x2 = cx - Math.sin(t * Math.PI * 2) * amplitude;
+    ctx.beginPath();
+    ctx.moveTo(x1, y);
+    ctx.lineTo(x2, y);
+    ctx.stroke();
   }
 }
 
-/** Creates a border ring geometry that matches the node shape.
- *  Uses Shape + holes for polygon types, RingGeometry for circles/hexagons. */
-function createBorderGeometry(
-  entityType: string,
-  innerOffset: number,
-  outerOffset: number
-): THREE.BufferGeometry {
-  switch (entityType) {
-    case "disease": {
-      const outerR = NODE_RADIUS + outerOffset;
-      const innerR = NODE_RADIUS + innerOffset;
-      const shape = new THREE.Shape();
-      shape.moveTo(0, outerR);
-      shape.lineTo(outerR, 0);
-      shape.lineTo(0, -outerR);
-      shape.lineTo(-outerR, 0);
-      shape.closePath();
-      const hole = new THREE.Path();
-      hole.moveTo(0, innerR);
-      hole.lineTo(innerR, 0);
-      hole.lineTo(0, -innerR);
-      hole.lineTo(-innerR, 0);
-      hole.closePath();
-      shape.holes.push(hole);
-      return new THREE.ShapeGeometry(shape);
-    }
-    case "drug": {
-      const outerR = NODE_RADIUS * 0.85 + outerOffset;
-      const innerR = NODE_RADIUS * 0.85 + innerOffset;
-      const cr = 3;
-      const shape = new THREE.Shape();
-      shape.moveTo(-outerR + cr, -outerR);
-      shape.lineTo(outerR - cr, -outerR);
-      shape.quadraticCurveTo(outerR, -outerR, outerR, -outerR + cr);
-      shape.lineTo(outerR, outerR - cr);
-      shape.quadraticCurveTo(outerR, outerR, outerR - cr, outerR);
-      shape.lineTo(-outerR + cr, outerR);
-      shape.quadraticCurveTo(-outerR, outerR, -outerR, outerR - cr);
-      shape.lineTo(-outerR, -outerR + cr);
-      shape.quadraticCurveTo(-outerR, -outerR, -outerR + cr, -outerR);
-      const hole = new THREE.Path();
-      hole.moveTo(-innerR + cr, -innerR);
-      hole.lineTo(innerR - cr, -innerR);
-      hole.quadraticCurveTo(innerR, -innerR, innerR, -innerR + cr);
-      hole.lineTo(innerR, innerR - cr);
-      hole.quadraticCurveTo(innerR, innerR, innerR - cr, innerR);
-      hole.lineTo(-innerR + cr, innerR);
-      hole.quadraticCurveTo(-innerR, innerR, -innerR, innerR - cr);
-      hole.lineTo(-innerR, -innerR + cr);
-      hole.quadraticCurveTo(-innerR, -innerR, -innerR + cr, -innerR);
-      shape.holes.push(hole);
-      return new THREE.ShapeGeometry(shape);
-    }
-    case "pathway": {
-      return new THREE.RingGeometry(
-        NODE_RADIUS + innerOffset,
-        NODE_RADIUS + outerOffset,
-        6
-      );
-    }
-    case "protein": {
-      const outerR = NODE_RADIUS + outerOffset;
-      const innerR = NODE_RADIUS + innerOffset;
-      const cos30 = Math.cos(Math.PI / 6);
-      const sin30 = Math.sin(Math.PI / 6);
-      const shape = new THREE.Shape();
-      shape.moveTo(0, outerR);
-      shape.lineTo(-outerR * cos30, -outerR * sin30);
-      shape.lineTo(outerR * cos30, -outerR * sin30);
-      shape.closePath();
-      const hole = new THREE.Path();
-      hole.moveTo(0, innerR);
-      hole.lineTo(-innerR * cos30, -innerR * sin30);
-      hole.lineTo(innerR * cos30, -innerR * sin30);
-      hole.closePath();
-      shape.holes.push(hole);
-      return new THREE.ShapeGeometry(shape);
-    }
-    default: {
-      return new THREE.RingGeometry(
-        NODE_RADIUS + innerOffset,
-        NODE_RADIUS + outerOffset,
-        32
-      );
+function drawDiseaseIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
+  // Warning triangle with exclamation mark
+  ctx.strokeStyle = "rgba(255,255,255,0.9)";
+  ctx.fillStyle = "rgba(255,255,255,0.9)";
+  ctx.lineWidth = 2.5;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  const triR = r * 1.1;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - triR);
+  ctx.lineTo(cx - triR * Math.cos(Math.PI / 6), cy + triR * Math.sin(Math.PI / 6));
+  ctx.lineTo(cx + triR * Math.cos(Math.PI / 6), cy + triR * Math.sin(Math.PI / 6));
+  ctx.closePath();
+  ctx.stroke();
+  // Exclamation mark
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - triR * 0.4);
+  ctx.lineTo(cx, cy + triR * 0.1);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy + triR * 0.3, 2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawDrugIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
+  // Pill capsule (tilted, two-tone halves)
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-Math.PI / 6);
+  const w = r * 1.4;
+  const h = r * 0.65;
+  ctx.strokeStyle = "rgba(255,255,255,0.9)";
+  ctx.lineWidth = 2.5;
+  // Left half (outline only)
+  ctx.beginPath();
+  ctx.moveTo(0, -h);
+  ctx.lineTo(-w + h, -h);
+  ctx.arc(-w + h, 0, h, -Math.PI / 2, Math.PI / 2, true);
+  ctx.lineTo(0, h);
+  ctx.stroke();
+  // Right half (filled semi-transparent)
+  ctx.fillStyle = "rgba(255,255,255,0.3)";
+  ctx.beginPath();
+  ctx.moveTo(0, -h);
+  ctx.lineTo(w - h, -h);
+  ctx.arc(w - h, 0, h, -Math.PI / 2, Math.PI / 2, false);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  // Center divider
+  ctx.beginPath();
+  ctx.moveTo(0, -h);
+  ctx.lineTo(0, h);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawPathwayIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
+  // Mini graph: three connected dots in triangle arrangement
+  ctx.strokeStyle = "rgba(255,255,255,0.9)";
+  ctx.fillStyle = "rgba(255,255,255,0.9)";
+  ctx.lineWidth = 2;
+  ctx.lineCap = "round";
+  const dr = r * 0.7;
+  const dotR = r * 0.15;
+  const points = [
+    { x: cx, y: cy - dr },
+    { x: cx - dr * 0.87, y: cy + dr * 0.5 },
+    { x: cx + dr * 0.87, y: cy + dr * 0.5 },
+  ];
+  // Edges
+  for (let i = 0; i < points.length; i++) {
+    for (let j = i + 1; j < points.length; j++) {
+      ctx.beginPath();
+      ctx.moveTo(points[i].x, points[i].y);
+      ctx.lineTo(points[j].x, points[j].y);
+      ctx.stroke();
     }
   }
+  // Dots
+  for (const p of points) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, dotR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawProteinIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
+  // Hexagonal benzene ring with vertex dots + inner circle
+  ctx.strokeStyle = "rgba(255,255,255,0.9)";
+  ctx.fillStyle = "rgba(255,255,255,0.9)";
+  ctx.lineWidth = 2;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  const hexR = r * 0.8;
+  const dotR = r * 0.1;
+  // Hexagon
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 3) * i - Math.PI / 2;
+    const x = cx + hexR * Math.cos(angle);
+    const y = cy + hexR * Math.sin(angle);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.stroke();
+  // Inner circle (benzene)
+  ctx.beginPath();
+  ctx.arc(cx, cy, hexR * 0.5, 0, Math.PI * 2);
+  ctx.stroke();
+  // Vertex dots
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 3) * i - Math.PI / 2;
+    const x = cx + hexR * Math.cos(angle);
+    const y = cy + hexR * Math.sin(angle);
+    ctx.beginPath();
+    ctx.arc(x, y, dotR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawEntityIcon(ctx: CanvasRenderingContext2D, entityType: string, cx: number, cy: number, r: number) {
+  switch (entityType) {
+    case "gene": drawGeneIcon(ctx, cx, cy, r); break;
+    case "disease": drawDiseaseIcon(ctx, cx, cy, r); break;
+    case "drug": drawDrugIcon(ctx, cx, cy, r); break;
+    case "pathway": drawPathwayIcon(ctx, cx, cy, r); break;
+    case "protein": drawProteinIcon(ctx, cx, cy, r); break;
+  }
+}
+
+/** Renders glow + gradient circle + icon + border onto a 256x256 canvas texture */
+function createNodeTexture(entityType: string, color: string): THREE.CanvasTexture {
+  const size = NODE_TEXTURE_SIZE;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const cx = size / 2;
+  const cy = size / 2;
+
+  // 1. Outer glow aura (entity color → transparent)
+  const glowGrad = ctx.createRadialGradient(cx, cy, NODE_CIRCLE_RADIUS * 0.8, cx, cy, NODE_GLOW_RADIUS);
+  glowGrad.addColorStop(0, colorWithAlpha(color, 0.18));
+  glowGrad.addColorStop(1, colorWithAlpha(color, 0));
+  ctx.fillStyle = glowGrad;
+  ctx.fillRect(0, 0, size, size);
+
+  // 2. Main circle with depth gradient (light center → full color → darkened rim)
+  const circleGrad = ctx.createRadialGradient(
+    cx - NODE_CIRCLE_RADIUS * 0.2, cy - NODE_CIRCLE_RADIUS * 0.2, 0,
+    cx, cy, NODE_CIRCLE_RADIUS
+  );
+  circleGrad.addColorStop(0, lightenColor(color, 0.35));
+  circleGrad.addColorStop(0.6, color);
+  circleGrad.addColorStop(1, darkenColor(color, 0.15));
+  ctx.beginPath();
+  ctx.arc(cx, cy, NODE_CIRCLE_RADIUS, 0, Math.PI * 2);
+  ctx.fillStyle = circleGrad;
+  ctx.fill();
+
+  // 3. Thin white border stroke
+  ctx.strokeStyle = "rgba(255,255,255,0.6)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return texture;
+}
+
+// Cache by "entityType:color" — only ~5 unique textures ever needed
+const nodeTextureCache = new Map<string, THREE.CanvasTexture>();
+
+function getNodeTexture(entityType: string, color: string): THREE.CanvasTexture {
+  const key = `${entityType}:${color}`;
+  let tex = nodeTextureCache.get(key);
+  if (!tex) {
+    tex = createNodeTexture(entityType, color);
+    nodeTextureCache.set(key, tex);
+  }
+  return tex;
+}
+
+/** Circular border ring — replaces per-shape createBorderGeometry */
+function createBorderRing(innerR: number, outerR: number): THREE.RingGeometry {
+  return new THREE.RingGeometry(innerR, outerR, 48);
 }
 
 function createLabelTexture(text: string): THREE.Texture {
@@ -189,15 +327,18 @@ function createLabelTexture(text: string): THREE.Texture {
   const fontSize = 28;
   ctx.font = `500 ${fontSize}px Inter, sans-serif`;
   const metrics = ctx.measureText(text);
-  const width = Math.ceil(metrics.width) + 12;
-  const height = fontSize + 12;
+  const textWidth = Math.ceil(metrics.width);
+  const width = textWidth + LABEL_PILL_PADDING_X * 2 + 12;
+  const height = fontSize + LABEL_PILL_PADDING_Y * 2 + 12;
   canvas.width = width;
   canvas.height = height;
   ctx.font = `500 ${fontSize}px Inter, sans-serif`;
+
   ctx.fillStyle = "#1A1A1A";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(text, width / 2, height / 2);
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.minFilter = THREE.LinearFilter;
   return texture;
@@ -209,14 +350,10 @@ function createNumberBadgeTexture(n: number): THREE.Texture {
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d")!;
-  // Number text only — white with dark outline for contrast on colored nodes
   ctx.font = "bold 38px Inter, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.strokeStyle = "#000000";
-  ctx.lineWidth = 4;
-  ctx.strokeText(String(n), size / 2, size / 2);
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = "#1A1A1A";
   ctx.fillText(String(n), size / 2, size / 2);
   const texture = new THREE.CanvasTexture(canvas);
   texture.minFilter = THREE.LinearFilter;
@@ -410,27 +547,46 @@ export default function GraphCanvas({
     });
 
     // Create node meshes + labels
+    const meshToSimNode = new Map<THREE.Mesh, SimNode>();
+
     simNodes.forEach((node) => {
-      const geometry = createNodeGeometry(node.entityType);
-      const material = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(node.color),
+      // Invisible hit mesh for raycasting (opacity:0, not visible:false — raycaster skips visible:false)
+      const hitGeo = new THREE.CircleGeometry(NODE_RADIUS, 32);
+      const hitMat = new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
       });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.userData = { nodeId: node.id, nodeSize: node.size };
-      mesh.position.z = 1;
-      scene.add(mesh);
-      node.mesh = mesh;
+      const hitMesh = new THREE.Mesh(hitGeo, hitMat);
+      hitMesh.userData = { nodeId: node.id, nodeSize: node.size };
+      hitMesh.position.z = 1;
+      hitMesh.scale.set(node.size, node.size, 1);
+      scene.add(hitMesh);
+      node.mesh = hitMesh;
+      meshToSimNode.set(hitMesh, node);
+
+      // Visual sprite with cached canvas texture
+      const tex = getNodeTexture(node.entityType, node.color);
+      const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+      const nodeSprite = new THREE.Sprite(spriteMat);
+      const spriteScale = NODE_SPRITE_WORLD_SIZE * node.size;
+      nodeSprite.scale.set(spriteScale, spriteScale, 1);
+      nodeSprite.position.z = 1;
+      scene.add(nodeSprite);
+      node.nodeSprite = nodeSprite;
 
       const r = NODE_RADIUS * node.size;
-      mesh.scale.set(node.size, node.size, 1);
 
       // Expansion border ring + number badge
       if (expandedNodeSet.has(node.id)) {
-        const ringGeo = createBorderGeometry(node.entityType, BORDER_INNER_OFFSET, BORDER_OUTER_OFFSET);
+        const ringGeo = createBorderRing(
+          NODE_RADIUS + BORDER_INNER_OFFSET,
+          NODE_RADIUS + BORDER_OUTER_OFFSET
+        );
         const ringMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
         const ring = new THREE.Mesh(ringGeo, ringMat);
         ring.position.z = 0.5;
-        mesh.add(ring);
+        hitMesh.add(ring);
 
         const order = expandedNodes.indexOf(node.id) + 1;
         const badgeTexture = createNumberBadgeTexture(order);
@@ -440,31 +596,34 @@ export default function GraphCanvas({
         const inv = 1 / node.size;
         badge.scale.set(18 * inv, 18 * inv, 1);
         badge.position.set(0, 0, 2);
-        mesh.add(badge);
+        hitMesh.add(badge);
       }
 
       // Path highlight
       if (pathIds.has(node.id)) {
-        const ringGeo = createBorderGeometry(node.entityType, BORDER_INNER_OFFSET, BORDER_OUTER_OFFSET);
+        const ringGeo = createBorderRing(
+          NODE_RADIUS + BORDER_INNER_OFFSET,
+          NODE_RADIUS + BORDER_OUTER_OFFSET
+        );
         const ringMat = new THREE.MeshBasicMaterial({ color: 0xf39c12 });
         const ring = new THREE.Mesh(ringGeo, ringMat);
         ring.position.z = 0.5;
-        mesh.add(ring);
+        hitMesh.add(ring);
       }
 
       // Label
       const texture = createLabelTexture(node.label);
-      const spriteMat = new THREE.SpriteMaterial({
+      const labelMat = new THREE.SpriteMaterial({
         map: texture,
         transparent: true,
       });
-      const sprite = new THREE.Sprite(spriteMat);
+      const labelSprite = new THREE.Sprite(labelMat);
       const textureImage = texture.source.data as { width: number; height: number };
       const aspect = textureImage.width / textureImage.height;
-      sprite.scale.set(aspect * 16, 16, 1);
-      sprite.position.set(0, -(r + 14), 2);
-      scene.add(sprite);
-      node.labelSprite = sprite;
+      labelSprite.scale.set(aspect * 16, 16, 1);
+      labelSprite.position.set(0, -(r + 14), 2);
+      scene.add(labelSprite);
+      node.labelSprite = labelSprite;
     });
 
     // Force simulation
@@ -496,6 +655,10 @@ export default function GraphCanvas({
         if (node.mesh && node.x !== undefined && node.y !== undefined) {
           node.mesh.position.x = node.x;
           node.mesh.position.y = node.y;
+        }
+        if (node.nodeSprite && node.x !== undefined && node.y !== undefined) {
+          node.nodeSprite.position.x = node.x;
+          node.nodeSprite.position.y = node.y;
         }
         if (node.labelSprite && node.x !== undefined && node.y !== undefined) {
           node.labelSprite.position.x = node.x;
@@ -588,18 +751,35 @@ export default function GraphCanvas({
 
       const node = getIntersectedNode(e);
       if (node && node !== hoveredNode) {
+        // Reset previous hovered node
         if (hoveredNode) {
           const s = (hoveredNode.userData.nodeSize as number) ?? 1;
           hoveredNode.scale.set(s, s, 1);
+          const prevSimN = meshToSimNode.get(hoveredNode);
+          if (prevSimN?.nodeSprite) {
+            const ss = NODE_SPRITE_WORLD_SIZE * s;
+            prevSimN.nodeSprite.scale.set(ss, ss, 1);
+          }
         }
+        // Scale up new hovered node
         const s = (node.userData.nodeSize as number) ?? 1;
         node.scale.set(s * 1.15, s * 1.15, 1);
+        const simN = meshToSimNode.get(node);
+        if (simN?.nodeSprite) {
+          const ss = NODE_SPRITE_WORLD_SIZE * s * 1.15;
+          simN.nodeSprite.scale.set(ss, ss, 1);
+        }
         hoveredNode = node;
         hoveredNodeRef.current = node;
         container.style.cursor = "pointer";
       } else if (!node && hoveredNode) {
         const s = (hoveredNode.userData.nodeSize as number) ?? 1;
         hoveredNode.scale.set(s, s, 1);
+        const simN = meshToSimNode.get(hoveredNode);
+        if (simN?.nodeSprite) {
+          const ss = NODE_SPRITE_WORLD_SIZE * s;
+          simN.nodeSprite.scale.set(ss, ss, 1);
+        }
         hoveredNode = null;
         hoveredNodeRef.current = null;
         container.style.cursor = "default";
@@ -654,6 +834,11 @@ export default function GraphCanvas({
       if (hoveredNode) {
         const s = (hoveredNode.userData.nodeSize as number) ?? 1;
         hoveredNode.scale.set(s, s, 1);
+        const simN = meshToSimNode.get(hoveredNode);
+        if (simN?.nodeSprite) {
+          const ss = NODE_SPRITE_WORLD_SIZE * s;
+          simN.nodeSprite.scale.set(ss, ss, 1);
+        }
         hoveredNode = null;
         hoveredNodeRef.current = null;
         container.style.cursor = "default";
@@ -789,6 +974,21 @@ export default function GraphCanvas({
       container.removeEventListener("contextmenu", handleContextMenu);
       container.removeEventListener("wheel", handleWheel);
       resizeObs.disconnect();
+      // Dispose node sprites and labels (cached textures are preserved across renders)
+      simNodes.forEach((node) => {
+        if (node.nodeSprite) {
+          (node.nodeSprite.material as THREE.SpriteMaterial).dispose();
+        }
+        if (node.labelSprite) {
+          const mat = node.labelSprite.material as THREE.SpriteMaterial;
+          mat.map?.dispose();
+          mat.dispose();
+        }
+        if (node.mesh) {
+          node.mesh.geometry.dispose();
+          (node.mesh.material as THREE.MeshBasicMaterial).dispose();
+        }
+      });
       simLinks.forEach((link) => {
         if (link.glowMesh) {
           link.glowMesh.geometry.dispose();
