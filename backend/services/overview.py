@@ -20,6 +20,7 @@ from backend.models.overview import (
     OverviewEdge,
     OverviewEntity,
     OverviewHistoryItem,
+    OverviewPathEntity,
     OverviewStreamRequest,
 )
 
@@ -446,7 +447,7 @@ def _retrieve_rag_chunks(context: SelectionContext) -> list[RagChunk]:
     return chunks[: settings.OVERVIEW_RAG_TOP_K]
 
 
-def _prompt_text(context: SelectionContext, rag_chunks: list[RagChunk], history: list[OverviewHistoryItem], orkg_text: str = "") -> str:
+def _prompt_text(context: SelectionContext, rag_chunks: list[RagChunk], history: list[OverviewHistoryItem], orkg_text: str = "", path: list[OverviewPathEntity] | None = None) -> str:
     edge = context.edge
     source_name = context.source.name if context.source else edge.source
     target_name = context.target.name if context.target else edge.target
@@ -464,6 +465,12 @@ def _prompt_text(context: SelectionContext, rag_chunks: list[RagChunk], history:
     history_lines = [
         f"- {h.selection_key}: {h.summary[:240]}" for h in history[-settings.OVERVIEW_HISTORY_LIMIT :]
     ]
+
+    if path:
+        path_str = " → ".join(f"{p.name} ({p.type})" for p in path)
+        path_line = f"Exploration path: {path_str}"
+    else:
+        path_line = ""
 
     relation_lines: list[str] = []
     if context.center_overview and context.source:
@@ -509,6 +516,9 @@ RAG supporting context:
 
 ORKG scholarly contributions:
 {orkg_text if orkg_text else '- none'}
+
+Exploration path (how the user arrived here):
+{path_line if path_line else "- direct query (no prior exploration)"}
 
 Previous session summaries:
 {chr(10).join(history_lines) if history_lines else '- none'}
@@ -604,7 +614,7 @@ def stream_overview_events(request: OverviewStreamRequest):
         return current, previous_full + current
 
     try:
-        prompt = _prompt_text(context, rag_chunks, request.history, orkg_text)
+        prompt = _prompt_text(context, rag_chunks, request.history, orkg_text, request.path or None)
         stream, chosen_model = _stream_overview_generation(prompt)
         global _resolved_generation_model_name
         _resolved_generation_model_name = chosen_model

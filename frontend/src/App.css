@@ -16,17 +16,23 @@
   height: 48px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  padding-left: var(--space-lg);
   background: var(--color-bg-surface);
   border-bottom: 1px solid var(--color-border);
   z-index: 100;
 }
 
-.top-nav-title {
-  font-size: var(--font-size-lg);
-  font-weight: 700;
+.top-nav-logo {
+  font-size: 22px;
+  font-weight: 800;
   color: var(--color-text-primary);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.top-nav-logo:hover {
+  opacity: 0.75;
 }
 
 .app-layout {
@@ -137,8 +143,8 @@
 }
 
 .pane-left {
-  width: 280px;
-  min-width: 280px;
+  width: 380px;
+  min-width: 380px;
   min-height: 0;
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
@@ -160,12 +166,13 @@
   flex: 1;
   min-width: 0;
   position: relative;
+  overflow: visible;
   background: var(--graph-bg);
 }
 
 .pane-right {
-  width: 360px;
-  min-width: 360px;
+  width: 320px;
+  min-width: 320px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -174,17 +181,13 @@
   -webkit-backdrop-filter: blur(var(--glass-blur));
   border-left: 1px solid var(--glass-border);
   overflow: hidden;
+  position: relative;
   transition: width 0.25s ease, min-width 0.25s ease, opacity 0.2s ease;
 }
 
 .pane-right.collapsed {
-  width: 48px;
-  min-width: 48px;
-  overflow: hidden;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: var(--space-lg);
+  width: 0;
+  min-width: 0;
 }
 
 @supports not (backdrop-filter: blur(1px)) {
@@ -194,29 +197,62 @@
   }
 }
 
-.right-pane-expand {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  background: var(--color-bg-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  transition: background 0.15s;
-}
-
-.right-pane-expand:hover {
-  background: var(--color-bg-elevated);
-}
-
 .pane-top-section {
   display: flex;
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
+}
+
+/* ── Floating edge tabs for panel collapse/expand ── */
+
+.panel-edge-tab {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 30;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(44, 95, 145, 0.25);
+  color: #2c5f91;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.panel-edge-tab:hover {
+  background: rgba(239, 247, 255, 0.95);
+  border-color: rgba(44, 95, 145, 0.4);
+}
+
+.panel-edge-tab-left {
+  left: 8px;
+}
+
+.panel-edge-tab-right {
+  right: 8px;
+}
+
+/* Open state: rectangular flush with panel edge */
+.panel-edge-tab-left.panel-open {
+  left: 0;
+  width: 20px;
+  height: 48px;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  box-shadow: 2px 0 6px rgba(0, 0, 0, 0.08);
+}
+
+.panel-edge-tab-right.panel-open {
+  right: 0;
+  width: 20px;
+  height: 48px;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  box-shadow: -2px 0 6px rgba(0, 0, 0, 0.08);
 }
 
 .pane-resize-handle {
@@ -252,6 +288,24 @@
   overflow: hidden;
 }
 
+/* ── Left pane body (below header) ── */
+
+.left-pane-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.left-pane-overview {
+  flex: 1;
+  min-height: 120px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 /* ── Left pane header ── */
 
 .pane-header {
@@ -278,7 +332,6 @@
   padding: var(--space-md) var(--space-lg);
   overflow-y: auto;
   overflow-x: hidden;
-  flex: 1;
   min-height: 0;
 }
 
@@ -485,6 +538,17 @@
 .chat-expand-fab:hover {
   transform: scale(1.08);
   box-shadow: 0 6px 20px rgba(74, 144, 217, 0.45);
+}
+
+/* ── Spotlight backdrop ── */
+
+.chat-spotlight-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 19;
 }
 
 /* ── Empty state ── */
