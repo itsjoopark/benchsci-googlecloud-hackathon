@@ -50,6 +50,9 @@ class SelectionContext:
     edge: OverviewEdge
     source: OverviewEntity | None
     target: OverviewEntity | None
+    related_edges: list[OverviewEdge]
+    center_overview: bool
+    entity_lookup: dict[str, OverviewEntity]
 
 
 _bq_client: bigquery.Client | None = None
@@ -82,25 +85,12 @@ def _get_embed_model() -> TextEmbeddingModel:
 def _get_genai_client() -> genai.Client:
     global _genai_client
     if _genai_client is None:
-        kwargs: dict = {"vertexai": True}
-        api_key = (settings.GOOGLE_CLOUD_API_KEY or settings.GEMINI_API_KEY).strip()
-        if api_key:
-            kwargs["api_key"] = api_key
-        else:
-            kwargs["project"] = settings.GCP_PROJECT_ID
-            kwargs["location"] = settings.GCP_REGION
-        _genai_client = genai.Client(**kwargs)
+        _genai_client = genai.Client(
+            vertexai=True,
+            project=settings.GCP_PROJECT_ID,
+            location=settings.GEMINI_OVERVIEW_LOCATION,
+        )
     return _genai_client
-
-
-def _overview_model_candidates() -> list[str]:
-    configured = settings.GEMINI_OVERVIEW_MODEL.strip()
-    fallbacks = [
-        name.strip()
-        for name in settings.GEMINI_OVERVIEW_MODEL_FALLBACKS.split(",")
-        if name.strip()
-    ]
-    return [configured, *fallbacks]
 
 
 def _stream_overview_generation(prompt: str) -> tuple[Iterator[genai_types.GenerateContentResponse], str]:
@@ -110,29 +100,22 @@ def _stream_overview_generation(prompt: str) -> tuple[Iterator[genai_types.Gener
         top_p=0.9,
         max_output_tokens=600,
     )
+    model_name = settings.GEMINI_OVERVIEW_MODEL.strip()
+    if not model_name:
+        raise RuntimeError("GEMINI_OVERVIEW_MODEL is not configured")
 
-    last_error: Exception | None = None
-    for model_name in _overview_model_candidates():
-        try:
-            stream = client.models.generate_content_stream(
-                model=model_name,
-                contents=[
-                    genai_types.Content(
-                        role="user",
-                        parts=[genai_types.Part(text=prompt)],
-                    )
-                ],
-                config=config,
+    stream = client.models.generate_content_stream(
+        model=model_name,
+        contents=[
+            genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text=prompt)],
             )
-            first_chunk = next(stream)
-            return itertools.chain([first_chunk], stream), model_name
-        except Exception as exc:
-            last_error = exc
-            logger.warning("Overview model unavailable: %s (%s)", model_name, exc)
-
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("No overview model candidates configured")
+        ],
+        config=config,
+    )
+    first_chunk = next(stream)
+    return itertools.chain([first_chunk], stream), model_name
 
 
 def _get_index_endpoint() -> aiplatform.MatchingEngineIndexEndpoint:
@@ -169,6 +152,9 @@ def _build_selection_context(request: OverviewStreamRequest) -> SelectionContext
             edge=edge,
             source=source,
             target=target,
+            related_edges=[edge],
+            center_overview=False,
+            entity_lookup=entities,
         )
 
     if not request.node_id:
@@ -176,6 +162,60 @@ def _build_selection_context(request: OverviewStreamRequest) -> SelectionContext
 
     center_id = request.center_node_id
     node_id = request.node_id
+
+    if node_id == center_id:
+        center_edges = [
+            e for e in request.edges if e.source == center_id or e.target == center_id
+        ]
+        ranked_center_edges = sorted(
+            center_edges,
+            key=lambda e: (e.score or 0.0, len(e.evidence or [])),
+            reverse=True,
+        )
+        related_edges = ranked_center_edges[:10]
+        if not related_edges:
+            raise ValueError("Center node has no visible connected edges")
+
+        seen_evidence_keys: set[str] = set()
+        merged_evidence = []
+        for edge_item in related_edges:
+            for ev in edge_item.evidence:
+                ev_key = ev.id or ev.pmid or f"{ev.title or ''}|{ev.snippet[:120]}"
+                if ev_key in seen_evidence_keys:
+                    continue
+                seen_evidence_keys.add(ev_key)
+                merged_evidence.append(ev)
+                if len(merged_evidence) >= 24:
+                    break
+            if len(merged_evidence) >= 24:
+                break
+
+        aggregate_edge = OverviewEdge(
+            id=f"center:{center_id}:all-visible",
+            source=center_id,
+            target="__all_visible_neighbors__",
+            predicate="center_node_overview",
+            label="center node relation to visible nodes",
+            score=related_edges[0].score,
+            provenance=related_edges[0].provenance,
+            sourceDb=related_edges[0].sourceDb,
+            evidence=merged_evidence,
+            paper_count=sum((e.paper_count or 0) for e in related_edges),
+            trial_count=sum((e.trial_count or 0) for e in related_edges),
+            patent_count=sum((e.patent_count or 0) for e in related_edges),
+            cooccurrence_score=related_edges[0].cooccurrence_score,
+        )
+
+        return SelectionContext(
+            selection_key=f"node:{node_id}",
+            selection_type="node",
+            edge=aggregate_edge,
+            source=entities.get(center_id),
+            target=None,
+            related_edges=related_edges,
+            center_overview=True,
+            entity_lookup=entities,
+        )
 
     direct_edges = [
         e
@@ -214,6 +254,9 @@ def _build_selection_context(request: OverviewStreamRequest) -> SelectionContext
         edge=chosen,
         source=source,
         target=target,
+        related_edges=[chosen],
+        center_overview=False,
+        entity_lookup=entities,
     )
 
 
@@ -255,18 +298,36 @@ def _build_query_text(context: SelectionContext) -> str:
     target_name = context.target.name if context.target else edge.target
     rel = edge.label or edge.predicate
 
+    evidence_source = edge.evidence
+    if context.center_overview:
+        evidence_source = [
+            ev
+            for rel_edge in context.related_edges[:6]
+            for ev in rel_edge.evidence[:2]
+        ]
+
     evidence_titles = [
-        e.title.strip() for e in edge.evidence if e.title and e.title.strip()
+        e.title.strip() for e in evidence_source if e.title and e.title.strip()
     ]
     evidence_snippets = [
-        e.snippet.strip() for e in edge.evidence if e.snippet and e.snippet.strip()
+        e.snippet.strip() for e in evidence_source if e.snippet and e.snippet.strip()
     ]
-    evidence_bits = evidence_titles[:3] + evidence_snippets[:3]
+    evidence_bits = evidence_titles[:4] + evidence_snippets[:4]
+
+    relation_bits: list[str] = []
+    if context.center_overview and context.source:
+        center_id = context.source.id
+        for rel_edge in context.related_edges[:8]:
+            other_id = rel_edge.target if rel_edge.source == center_id else rel_edge.source
+            other_name = context.entity_lookup.get(other_id).name if other_id in context.entity_lookup else other_id
+            relation_bits.append(f"{context.source.name} -> {other_name}: {rel_edge.label or rel_edge.predicate}")
 
     return "\n".join([
         f"source: {source_name}",
         f"target: {target_name}",
         f"predicate: {rel}",
+        "relations:",
+        *(relation_bits or ["none"]),
         "evidence:",
         *evidence_bits,
     ])
@@ -351,22 +412,24 @@ def _retrieve_rag_chunks(context: SelectionContext) -> list[RagChunk]:
     if not doc_ids:
         return []
 
-    try:
-        filter_rows = list(
-            client.query(
-                sql_filter,
-                job_config=bigquery.QueryJobConfig(
-                    query_parameters=[
-                        bigquery.ScalarQueryParameter("source_id", "STRING", source_id),
-                        bigquery.ScalarQueryParameter("target_id", "STRING", target_id),
-                        bigquery.ArrayQueryParameter("doc_ids", "STRING", doc_ids),
-                    ]
-                ),
-            ).result()
-        )
-        eligible_doc_ids = {str(r["doc_id"]) for r in filter_rows}
-    except GoogleAPICallError:
-        eligible_doc_ids = set()
+    eligible_doc_ids: set[str] = set()
+    if not context.center_overview:
+        try:
+            filter_rows = list(
+                client.query(
+                    sql_filter,
+                    job_config=bigquery.QueryJobConfig(
+                        query_parameters=[
+                            bigquery.ScalarQueryParameter("source_id", "STRING", source_id),
+                            bigquery.ScalarQueryParameter("target_id", "STRING", target_id),
+                            bigquery.ArrayQueryParameter("doc_ids", "STRING", doc_ids),
+                        ]
+                    ),
+                ).result()
+            )
+            eligible_doc_ids = {str(r["doc_id"]) for r in filter_rows}
+        except GoogleAPICallError:
+            eligible_doc_ids = set()
 
     if eligible_doc_ids:
         chunks = [c for c in chunks if c.doc_id in eligible_doc_ids]
@@ -401,10 +464,25 @@ def _prompt_text(context: SelectionContext, rag_chunks: list[RagChunk], history:
         f"- {h.selection_key}: {h.summary[:240]}" for h in history[-settings.OVERVIEW_HISTORY_LIMIT :]
     ]
 
+    relation_lines: list[str] = []
+    if context.center_overview and context.source:
+        center_id = context.source.id
+        for rel_edge in context.related_edges[:10]:
+            other_id = rel_edge.target if rel_edge.source == center_id else rel_edge.source
+            other_name = context.entity_lookup.get(other_id).name if other_id in context.entity_lookup else other_id
+            relation_lines.append(
+                f"- {source_name} -> {other_name}: {rel_edge.label or rel_edge.predicate} (score={rel_edge.score or 0:.2f})"
+            )
+    selection_instruction = (
+        "Explain how the center node is related to all currently visible connected nodes, summarizing the strongest links."
+        if context.center_overview
+        else "Explain why this specific selected connection exists."
+    )
+
     return f"""
 You are a biomedical knowledge graph explainer.
 
-Task: explain why this connection exists using only grounded evidence.
+Task: {selection_instruction}
 Hard rules:
 1) Do not invent facts.
 2) Every claim must map to cited IDs from provided evidence or RAG context.
@@ -416,7 +494,11 @@ Selected connection:
 - target: {target_name} ({edge.target})
 - predicate: {relationship}
 - selection_type: {context.selection_type}
+- center_overview: {str(context.center_overview).lower()}
 - cooccurrence: papers={edge.paper_count or 0}, trials={edge.trial_count or 0}, patents={edge.patent_count or 0}
+
+Visible center-node relations:
+{chr(10).join(relation_lines) if relation_lines else '- n/a (not center selection)'}
 
 Primary evidence:
 {chr(10).join(evidence_lines) if evidence_lines else '- none'}

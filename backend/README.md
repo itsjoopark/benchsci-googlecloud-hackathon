@@ -43,7 +43,7 @@ Optional overrides:
 OVERVIEW_API_KEY_SECRET=your-secret-name \
 EXTRACTION_APP_KEY_SECRET=your-app-secret-name \
 GEMINI_OVERVIEW_MODEL=gemini-3-flash-preview \
-GEMINI_OVERVIEW_MODEL_FALLBACKS=gemini-2.5-flash,gemini-2.0-flash-001 \
+GEMINI_OVERVIEW_MODEL_FALLBACKS= \
 ./scripts/gcp/deploy_backend_cloud_run.sh
 ```
 
