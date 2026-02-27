@@ -65,15 +65,14 @@
 }
 
 .entity-advanced-search-sources {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
 }
 
 .entity-advanced-search-source-card {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: var(--space-sm);
   padding: var(--space-md);
   background: var(--color-bg-elevated);
@@ -82,8 +81,6 @@
   text-decoration: none;
   color: inherit;
   transition: border-color 0.15s, background 0.15s;
-  overflow: hidden;
-  min-width: 0;
 }
 
 .entity-advanced-search-source-card:hover {
@@ -91,48 +88,38 @@
   background: var(--color-bg-surface);
 }
 
-.entity-advanced-search-source-thumb {
-  width: 64px;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-bg-primary);
-  border-radius: var(--radius-sm);
-}
-
-.entity-advanced-search-source-icon {
-  font-size: 20px;
-}
-
-.entity-advanced-search-source-meta {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  width: 100%;
+.entity-advanced-search-source-title {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  line-height: 1.5;
+  margin: 0;
   overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
-.entity-advanced-search-source-pmid {
+.entity-advanced-search-source-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.entity-advanced-search-source-year {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-primary);
+  padding: 2px 8px;
+  border-radius: 9999px;
+}
+
+.entity-advanced-search-source-link {
   font-size: var(--font-size-xs);
   color: var(--color-gene);
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  margin-left: auto;
   white-space: nowrap;
-  max-width: 100%;
-  display: block;
-}
-
-.entity-advanced-search-source-id {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-  display: block;
 }
 
 /* ── Co-occurrence stats ── */

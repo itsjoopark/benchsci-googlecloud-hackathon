@@ -43,7 +43,7 @@
   min-height: 104px;
   padding: var(--space-md);
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .ai-overview-body.streaming::after {

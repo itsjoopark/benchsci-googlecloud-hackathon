@@ -20,6 +20,16 @@ function getOverviewSectionTitle(entityType: string): string {
   return map[entityType] ?? "Overview";
 }
 
+/** Use the title if available, otherwise extract the first sentence of the snippet. */
+function getSourceTitle(item: EvidenceItem): string {
+  if (item.title) return item.title;
+  if (item.snippet) {
+    const match = item.snippet.match(/^.+?[.!?](?:\s|$)/);
+    return match ? match[0].trim() : item.snippet;
+  }
+  return item.pmid ? `PMID ${item.pmid}` : "Untitled";
+}
+
 function collectSourcesFromEdges(entityId: string, edges: GraphEdge[]): EvidenceItem[] {
   const seen = new Set<string>();
   const items: EvidenceItem[] = [];
@@ -32,6 +42,12 @@ function collectSourcesFromEdges(entityId: string, edges: GraphEdge[]): Evidence
       }
     }
   }
+  // Show sources with titles/snippets first, then the rest
+  items.sort((a, b) => {
+    const aHas = a.title || a.snippet ? 1 : 0;
+    const bHas = b.title || b.snippet ? 1 : 0;
+    return bHas - aHas;
+  });
   return items;
 }
 
@@ -144,18 +160,14 @@ export default function EntityAdvancedSearchPanel({
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  <div className="entity-advanced-search-source-thumb">
-                    <span className="entity-advanced-search-source-icon">📄</span>
-                  </div>
-                  <div className="entity-advanced-search-source-meta">
-                    <span className="entity-advanced-search-source-pmid">
-                      PubMed
-                    </span>
-                    {item.pmid && (
-                      <span className="entity-advanced-search-source-id">
-                        PMID: {item.pmid}
-                      </span>
+                  <p className="entity-advanced-search-source-title">
+                    {getSourceTitle(item)}
+                  </p>
+                  <div className="entity-advanced-search-source-footer">
+                    {item.year != null && item.year > 0 && (
+                      <span className="entity-advanced-search-source-year">{item.year}</span>
                     )}
+                    <span className="entity-advanced-search-source-link">PubMed ↗</span>
                   </div>
                 </a>
               ))}

@@ -15,6 +15,7 @@ from google.cloud import aiplatform, bigquery
 from vertexai.language_models import TextEmbeddingInput, TextEmbeddingModel
 
 from backend.config import settings
+from backend.services.orkg_context import get_orkg_context
 from backend.models.overview import (
     OverviewEdge,
     OverviewEntity,
@@ -98,6 +99,7 @@ def _stream_overview_generation(prompt: str) -> tuple[Iterator[genai_types.Gener
         temperature=0.2,
         top_p=0.9,
         max_output_tokens=600,
+        thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
     )
     model_name = settings.GEMINI_OVERVIEW_MODEL.strip()
     if not model_name:
@@ -259,7 +261,7 @@ def _build_selection_context(request: OverviewStreamRequest) -> SelectionContext
     )
 
 
-def _normalize_citations(edge: OverviewEdge, rag_chunks: list[RagChunk]) -> list[Citation]:
+def _normalize_citations(edge: OverviewEdge, rag_chunks: list[RagChunk], orkg_text: str = "") -> list[Citation]:
     citations: list[Citation] = []
     seen: set[str] = set()
 
@@ -278,6 +280,15 @@ def _normalize_citations(edge: OverviewEdge, rag_chunks: list[RagChunk]) -> list
             continue
         seen.add(key)
         citations.append(Citation(id=key, kind="rag", label=key))
+
+    if orkg_text:
+        for doi_match in re.finditer(r"DOI:\s*(10\.\S+)", orkg_text):
+            doi = doi_match.group(1).rstrip("|").strip()
+            key = f"DOI:{doi}"
+            if key in seen:
+                continue
+            seen.add(key)
+            citations.append(Citation(id=key, kind="orkg", label=key))
 
     return citations
 
@@ -435,7 +446,7 @@ def _retrieve_rag_chunks(context: SelectionContext) -> list[RagChunk]:
     return chunks[: settings.OVERVIEW_RAG_TOP_K]
 
 
-def _prompt_text(context: SelectionContext, rag_chunks: list[RagChunk], history: list[OverviewHistoryItem]) -> str:
+def _prompt_text(context: SelectionContext, rag_chunks: list[RagChunk], history: list[OverviewHistoryItem], orkg_text: str = "") -> str:
     edge = context.edge
     source_name = context.source.name if context.source else edge.source
     target_name = context.target.name if context.target else edge.target
@@ -496,6 +507,9 @@ Primary evidence:
 RAG supporting context:
 {chr(10).join(rag_lines) if rag_lines else '- none'}
 
+ORKG scholarly contributions:
+{orkg_text if orkg_text else '- none'}
+
 Previous session summaries:
 {chr(10).join(history_lines) if history_lines else '- none'}
 
@@ -513,7 +527,20 @@ def stream_overview_events(request: OverviewStreamRequest):
     try:
         context = _build_selection_context(request)
         rag_chunks = _retrieve_rag_chunks(context)
-        citations = _normalize_citations(context.edge, rag_chunks)
+
+        orkg_text = ""
+        if settings.ORKG_ENABLED and context.selection_type == "edge":
+            try:
+                orkg_text = get_orkg_context(
+                    entity_a_id=context.edge.source,
+                    entity_b_id=context.edge.target,
+                    entity_a_type=context.source.type if context.source else None,
+                    entity_b_type=context.target.type if context.target else None,
+                )
+            except Exception:
+                logger.warning("ORKG context retrieval failed, continuing without", exc_info=True)
+
+        citations = _normalize_citations(context.edge, rag_chunks, orkg_text)
     except Exception as exc:
         logger.exception("Failed to prepare overview context")
         yield _sse(
@@ -550,26 +577,44 @@ def stream_overview_events(request: OverviewStreamRequest):
                 }
                 for c in rag_chunks
             ],
+            "orkg_available": bool(orkg_text),
         },
     )
 
     full_text = ""
+
+    def extract_chunk_text(chunk: genai_types.GenerateContentResponse) -> str:
+        text = getattr(chunk, "text", None)
+        if text:
+            return text
+        if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
+            return "".join(part.text or "" for part in chunk.candidates[0].content.parts)
+        return ""
+
+    def compute_delta(current: str, previous_full: str) -> tuple[str, str]:
+        # SDK responses can be either cumulative or delta-chunks.
+        # Normalize to emitted deltas while preserving full text for done event.
+        if not current:
+            return "", previous_full
+        if current.startswith(previous_full):
+            return current[len(previous_full):], current
+        if previous_full.startswith(current):
+            return "", previous_full
+        # Fallback for true delta chunks or mixed chunking behavior.
+        return current, previous_full + current
+
     try:
-        prompt = _prompt_text(context, rag_chunks, request.history)
+        prompt = _prompt_text(context, rag_chunks, request.history, orkg_text)
         stream, chosen_model = _stream_overview_generation(prompt)
         global _resolved_generation_model_name
         _resolved_generation_model_name = chosen_model
 
         for chunk in stream:
-            text = getattr(chunk, "text", None)
-            if text is None:
-                text = ""
-                if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
-                    text = "".join(part.text or "" for part in chunk.candidates[0].content.parts)
-            if not text:
+            chunk_text = extract_chunk_text(chunk)
+            delta, full_text = compute_delta(chunk_text, full_text)
+            if not delta:
                 continue
-            full_text += text
-            yield _sse("delta", {"text": text})
+            yield _sse("delta", {"text": delta})
 
         yield _sse(
             "done",

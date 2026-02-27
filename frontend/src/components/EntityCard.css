@@ -73,3 +73,59 @@
   line-height: 1.5;
   margin-top: var(--space-sm);
 }
+
+/* ── Compact variant ── */
+
+.entity-card--compact {
+  display: flex;
+  flex-direction: row;
+  margin: 0;
+  padding: 0;
+}
+
+.entity-card-color-bar {
+  width: 4px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.entity-card--compact-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.entity-card-header--compact {
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: none;
+  gap: var(--space-xs);
+}
+
+.entity-type-badge--compact {
+  font-size: 9px;
+  padding: 1px 5px;
+}
+
+.entity-card-name--compact {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.entity-card-body--compact {
+  padding: 0 var(--space-md) var(--space-sm);
+  gap: 2px;
+}
+
+.entity-card-body--compact .meta-row {
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+}
+
+.entity-card-body--compact .meta-label {
+  font-size: var(--font-size-xs);
+}
+
+.entity-card-body--compact .meta-value {
+  font-size: var(--font-size-xs);
+}

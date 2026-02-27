@@ -27,6 +27,7 @@ GCS_SQL_PREFIX="pkg2_sql"
 GCS_EXPORT_PREFIX="pkg2_exports"
 CONNECTION_ID="pkg25-conn"
 
+SA_KEY="${REPO_ROOT}/service-account-key.json"
 DATA_DIR="${REPO_ROOT}/data/pkg2_sql"
 RESULT_DIR="$(mktemp -d)"
 trap 'rm -rf "${RESULT_DIR}"' EXIT
@@ -135,6 +136,16 @@ if [[ ${MISSING} -gt 0 ]]; then
   exit 1
 fi
 echo "[$(ts)] All ${#TABLES[@]} dump files present in ${DATA_DIR}/"
+
+# Activate service account key (needed for Cloud SQL import/export perms)
+if [[ -f "${SA_KEY}" ]]; then
+  echo "[$(ts)] Activating service account key..."
+  gcloud auth activate-service-account --key-file="${SA_KEY}" --quiet
+  echo "[$(ts)] Authenticated as $(gcloud config get-value account 2>/dev/null)"
+else
+  echo "WARNING: Service account key not found at ${SA_KEY}"
+  echo "         Cloud SQL import may fail without roles/editor."
+fi
 
 # Enable required APIs
 echo "[$(ts)] Enabling Cloud SQL Admin API..."

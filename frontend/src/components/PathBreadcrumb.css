@@ -1,77 +1,108 @@
+/* ── Vertical Pathway ── */
+
 .path-breadcrumb {
   display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: var(--space-sm) 0;
+}
+
+/* Each step: optional arrow + card */
+.path-step {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* ── Arrow connector ── */
+
+.path-arrow-connector {
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-sm) var(--space-lg);
+  padding: 2px 0;
+}
+
+.path-arrow-line {
+  width: 2px;
+  height: 10px;
+  background: var(--color-border);
+}
+
+.path-arrow-label {
+  display: inline-block;
+  max-width: 200px;
+  padding: 1px 8px;
+  margin: 2px 0;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
   background: var(--color-bg-surface);
-  border-bottom: 1px solid var(--color-border);
-  overflow-x: auto;
-  z-index: 10;
-}
-
-.path-trail {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  flex: 1;
-  min-width: 0;
-  overflow-x: auto;
-}
-
-.path-segment {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  flex-shrink: 0;
-}
-
-.path-arrow {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-.path-chip {
-  padding: var(--space-xs) var(--space-sm);
-  background: var(--color-bg-elevated);
-  border: 1.5px solid;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-  white-space: nowrap;
-  transition: background 0.15s;
-}
-
-.path-chip:hover {
-  background: var(--color-bg-primary);
-}
-
-.path-actions {
-  display: flex;
-  gap: var(--space-xs);
-  flex-shrink: 0;
-}
-
-.path-btn {
-  padding: var(--space-xs) var(--space-sm);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-  background: transparent;
+  border-radius: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.5;
 }
 
-.path-btn-clear {
-  color: var(--color-disease);
-  border-color: var(--color-disease);
+.path-arrow-head {
+  display: block;
+  flex-shrink: 0;
 }
 
-.path-btn-clear:hover {
-  background: rgba(231, 76, 60, 0.1);
+/* ── Card wrapper with prune button ── */
+
+.path-step-card {
+  position: relative;
 }
 
-.path-btn-save {
+.path-step-prune {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  font-size: 13px;
+  line-height: 1;
   color: var(--color-text-secondary);
-  opacity: 0.5;
-  cursor: not-allowed;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.path-step-card:hover .path-step-prune {
+  opacity: 1;
+}
+
+.path-step-prune:hover {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
+/* ── Clear button ── */
+
+.path-breadcrumb-clear {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  transition: color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+
+.path-breadcrumb-clear:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-text-secondary);
 }

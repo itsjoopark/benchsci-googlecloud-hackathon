@@ -2,10 +2,8 @@
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-lg);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--graph-bg);
-  z-index: 10;
+  flex: 1;
+  min-width: 0;
 }
 
 .toolbar-path-count {
@@ -14,8 +12,27 @@
   font-weight: 600;
 }
 
-.toolbar-hint {
+.toolbar-hints {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-left: auto;
+}
+
+.toolbar-hint-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
-  margin-left: auto;
+}
+
+.toolbar-hint-expand {
+  color: var(--color-gene);
+  font-weight: 500;
+}
+
+.toolbar-hint-separator {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
 }
